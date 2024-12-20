@@ -5,7 +5,6 @@ import { AppHero } from '../ui/ui-layout'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { LAMPORTS_PER_SOL, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } from '@solana/web3.js'
 import { Button } from '@/components/ui/button'
-import * as IDL from '../../../../target/idl/lottery.json'
 import * as anchor from "@coral-xyz/anchor"
 
 // Constants
@@ -50,7 +49,7 @@ export default function DashboardFeature() {
   const [selectedLotteryId, setSelectedLotteryId] = useState<string | null>(null)
 
   // Get program and PDA
-  const getProgram = () => {
+  const getProgram = async () => {
     const provider = new anchor.AnchorProvider(
       connection,
       {
@@ -61,7 +60,12 @@ export default function DashboardFeature() {
       { commitment: 'confirmed' }
     )
     anchor.setProvider(provider)
-    return new anchor.Program(IDL as anchor.Idl, provider) as LotteryProgram
+    
+    // Fetch IDL from chain
+    const idl = await anchor.Program.fetchIdl(PROGRAM_ID, provider)
+    if (!idl) throw new Error("IDL not found")
+    
+    return new anchor.Program(idl, provider) as LotteryProgram
   }
 
   const getLotteryPDA = (lotteryId: string) => {
@@ -78,7 +82,7 @@ export default function DashboardFeature() {
     
     try {
       setLoading(true)
-      const program = getProgram()
+      const program = await getProgram()
       const lotteryPDA = getLotteryPDA(selectedLotteryId)
       
       const account = await program.account.lotteryState.fetch(lotteryPDA)
@@ -98,9 +102,6 @@ export default function DashboardFeature() {
     try {
       const currentTime = Math.floor(Date.now() / 1000)
       const endTime = lotteryState.endTime.toNumber()
-      console.log('Buy ticket - Current time:', currentTime)
-      console.log('Buy ticket - End time:', endTime)
-      console.log('Buy ticket - Time remaining:', endTime - currentTime)
       
       if (currentTime >= endTime) {
         setError('This lottery has ended')
@@ -108,7 +109,7 @@ export default function DashboardFeature() {
       }
       
       setLoading(true)
-      const program = getProgram()
+      const program = await getProgram()
       const lotteryPDA = getLotteryPDA(selectedLotteryId)
 
       // Create transfer instruction for entry fee
@@ -166,7 +167,7 @@ export default function DashboardFeature() {
     
     try {
       setLoading(true)
-      const program = getProgram()
+      const program = await getProgram()
       const lotteryPDA = getLotteryPDA(selectedLotteryId)
 
       const ix = await program.methods
@@ -210,7 +211,7 @@ export default function DashboardFeature() {
     
     try {
       setLoading(true)
-      const program = getProgram()
+      const program = await getProgram()
       
       // Fetch all lottery accounts
       const accounts = await program.account.lotteryState.all()
@@ -237,11 +238,22 @@ export default function DashboardFeature() {
 
   useEffect(() => {
     if (wallet.publicKey) {
-      fetchAllLotteries()
-      const interval = setInterval(fetchAllLotteries, 10000)
+      // Create an async function inside useEffect
+      const fetchData = async () => {
+        await fetchAllLotteries()
+      }
+      
+      fetchData() // Call it immediately
+      const interval = setInterval(fetchData, 10000) // Use the same async function for interval
       return () => clearInterval(interval)
     }
   }, [wallet.publicKey])
+
+  useEffect(() => {
+    if (selectedLotteryId) {
+      fetchLotteryState()
+    }
+  }, [selectedLotteryId])
 
   const timeRemaining = lotteryState ? 
     new Date(lotteryState.endTime.toNumber() * 1000).getTime() - Date.now() : 0
@@ -252,7 +264,7 @@ export default function DashboardFeature() {
     
     try {
       setLoading(true)
-      const program = getProgram()
+      const program = await getProgram()
       
       // Generate a unique lottery ID using timestamp
       const lotteryId = `lottery_${Date.now()}`
@@ -309,12 +321,6 @@ export default function DashboardFeature() {
     }
   }
 
-  useEffect(() => {
-    if (selectedLotteryId) {
-      fetchLotteryState()
-    }
-  }, [selectedLotteryId])
-
   // Add a countdown timer component
   const CountdownTimer = ({ endTime }: { endTime: number }) => {
     const [timeLeft, setTimeLeft] = useState(Math.max(0, endTime * 1000 - Date.now()))
@@ -356,6 +362,12 @@ export default function DashboardFeature() {
           </div>
         }
       />
+      
+      {error && (
+        <div className="max-w-2xl mx-auto my-4 p-4 bg-red-50 border border-red-200 rounded-md text-red-600">
+          {error}
+        </div>
+      )}
       
       {!wallet.publicKey ? (
         <div className="max-w-2xl mx-auto text-center py-12">
@@ -502,21 +514,28 @@ export default function DashboardFeature() {
             </div>
           )}
 
-          {/* Create Form - Add better validation and feedback */}
+          {/* Create Form */}
           {showCreateForm && (
             <div className="bg-white shadow rounded-lg p-6 space-y-4">
               <div className="flex justify-between items-center">
                 <h2 className="text-xl font-bold">Create New Lottery</h2>
-                <button 
-                  onClick={() => setShowCreateForm(false)}
-                  className="text-gray-400 hover:text-gray-500"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+                <button onClick={() => setShowCreateForm(false)} className="text-gray-400 hover:text-gray-500">×</button>
               </div>
-              {/* Rest of the create form... */}
+              <input
+                type="number"
+                value={newLotteryData.entryFee}
+                onChange={(e) => setNewLotteryData(prev => ({ ...prev, entryFee: e.target.value }))}
+                placeholder="Entry Fee (SOL)"
+                className="w-full p-2 border rounded"
+              />
+              <input
+                type="number"
+                value={newLotteryData.duration}
+                onChange={(e) => setNewLotteryData(prev => ({ ...prev, duration: e.target.value }))}
+                placeholder="Duration in seconds (e.g. 3600 = 1 hour)"
+                className="w-full p-2 border rounded"
+              />
+              <Button onClick={createLottery} disabled={loading}>Create Lottery</Button>
             </div>
           )}
         </div>
