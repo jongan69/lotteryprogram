@@ -37,11 +37,7 @@ anchor idl init --filepath target/idl/lottery.json YOUR_PROGRAM_ADDRESS
 ```
 Note: You may need to use `anchor idl upgrade --filepath target/idl/lottery.json YOUR_PROGRAM_ADDRESS` if you are upgrading the program.
 
-Install dependencies:
-```bash
-pnpm i 
-pnpm update
-```
+
 
 ## About the Lottery
 
@@ -60,10 +56,10 @@ This example implements a decentralized lottery with the following features:
 2. Install Anchor (0.30.0):
    ```bash
    cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
-   avm install 0.30.0
-   avm use 0.30.0
+   avm install 0.30.1
+   avm use 0.30.1
    ```
-3. Install Node.js and pnpm
+3. Install Node.js
 4. Configure Solana CLI for devnet:
    ```bash
    solana config set --url devnet
@@ -73,6 +69,9 @@ This example implements a decentralized lottery with the following features:
    solana-keygen new -o test-wallet.json
    solana airdrop 2 test-wallet.json --url devnet
    ```
+6. Set `wallet=/path/to/test-wallet.json` in `Anchor.toml`
+
+Note: You can get the cli config by using the `solana config get` command.
 
 ### Setup Steps
 1. Clone the repository:
@@ -81,12 +80,7 @@ This example implements a decentralized lottery with the following features:
    cd lottery
    ```
 
-2. Install dependencies:
-   ```bash
-   pnpm install
-   ```
-
-3. Build the program:
+2. Build the program:
    ```bash
    anchor clean  # Clean any existing build artifacts
    anchor build
@@ -160,10 +154,11 @@ Note: Always ensure you're on devnet and have sufficient SOL before running test
 1. **Account Size Errors / Program Changes**
    When making significant changes to the program's state or instruction parameters, you may need to:
    ```bash
-   anchor clean
-   solana-keygen new -o target/deploy/lottery-keypair.json
-   # Update program ID in lib.rs and Anchor.toml
+   cargo clean
    anchor build
+   anchor keys list
+   # Update program ID in lib.rs and Anchor.toml
+   anchor build (again for safe measure)
    anchor deploy
    ```
 
