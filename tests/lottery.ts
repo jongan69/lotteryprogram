@@ -3,8 +3,47 @@ import { Keypair, PublicKey, SystemProgram, Commitment, Connection } from "@sola
 import * as sb from "@switchboard-xyz/on-demand";
 
 // Constants for identifying accounts
-const PLAYER_STATE_SEED = "playerState";  // Unique seed for the player's state account
 const myProgramPath = "./target/deploy/lottery-keypair.json"; // Path to the lottery program keypair
+const computeUnitPrice = 75_000;
+const computeUnitLimitMultiple = 1.3;
+const commitment = "confirmed";
+
+// Add at the top of the file
+interface LotteryState {
+  lotteryId: string;
+  entryFee: number;
+  endTime: number;
+  totalTickets: number;
+  participants: PublicKey[];
+  winner: PublicKey | null;
+  // Add other fields from your Rust struct
+}
+
+// helper functions
+async function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+//function to log balances
+async function logBalances(
+  connection: Connection,
+  lottery: PublicKey,
+  admin: PublicKey,
+  participants: { name: string, pubkey: PublicKey }[]
+) {
+  const lotteryBalance = await connection.getBalance(lottery);
+  const adminBalance = await connection.getBalance(admin);
+
+  console.log("\nCurrent Balances:");
+  console.log(`Lottery Pool: ${lotteryBalance / anchor.web3.LAMPORTS_PER_SOL} SOL`);
+  console.log(`Admin: ${adminBalance / anchor.web3.LAMPORTS_PER_SOL} SOL`);
+
+  // Log each participant's balance
+  for (const participant of participants) {
+    const balance = await connection.getBalance(participant.pubkey);
+    console.log(`Participant #${participants.indexOf(participant)} in Lottery: ${participant.name} balance: ${balance / anchor.web3.LAMPORTS_PER_SOL} SOL`);
+  }
+}
+
 
 (async function main() {
   try {
@@ -31,7 +70,7 @@ const myProgramPath = "./target/deploy/lottery-keypair.json"; // Path to the lot
     console.log("PID:", pid.toString());
 
     // Add error handling and logging for program loading
-    let lotteryProgram;
+    let lotteryProgram: any;
     try {
       const idl = await anchor.Program.fetchIdl(pid, program!.provider);
       if (!idl) {
@@ -59,9 +98,58 @@ const myProgramPath = "./target/deploy/lottery-keypair.json"; // Path to the lot
       maxRetries: 0,                          // Retry attempts for transaction
     };
 
-    // Step 3: Create randomness account
-    console.log("\nStep 1: Creating randomness account...");
-    let randomness, ix, rngKp: Keypair;
+    // After loading programs
+    console.log("\nStep 1: Creating and funding participants...");
+    const participant1 = Keypair.generate();
+    const participant2 = Keypair.generate();
+    console.log("Created participants:", {
+      participant1: participant1.publicKey.toString(),
+      participant2: participant2.publicKey.toString()
+    });
+
+    // Fund the participants first
+    console.log("Funding participants...");
+    const fundAmount = 0.2 * anchor.web3.LAMPORTS_PER_SOL;
+
+    const transferIx1 = SystemProgram.transfer({
+      fromPubkey: keypair.publicKey,
+      toPubkey: participant1.publicKey,
+      lamports: fundAmount,
+    });
+
+    const transferIx2 = SystemProgram.transfer({
+      fromPubkey: keypair.publicKey,
+      toPubkey: participant2.publicKey,
+      lamports: fundAmount,
+    });
+
+    const fundTx1 = await sb.asV0Tx({
+      connection: sbProgram.provider.connection,
+      ixs: [transferIx1],
+      payer: keypair.publicKey,
+      signers: [keypair],
+      computeUnitPrice: computeUnitPrice,
+      computeUnitLimitMultiple: computeUnitLimitMultiple,
+    });
+
+    const fundTx2 = await sb.asV0Tx({
+      connection: sbProgram.provider.connection,
+      ixs: [transferIx2],
+      payer: keypair.publicKey,
+      signers: [keypair],
+      computeUnitPrice: computeUnitPrice,
+      computeUnitLimitMultiple: computeUnitLimitMultiple,
+    });
+
+    const fundSig1 = await connection.sendTransaction(fundTx1, txOpts);
+    await confirmTx(connection, fundSig1);
+    const fundSig2 = await connection.sendTransaction(fundTx2, txOpts);
+    await confirmTx(connection, fundSig2);
+    console.log("Participants funded successfully");
+
+    // Then continue with creating randomness account...
+    console.log("\nStep 2: Creating randomness account...");
+    let randomness: { pubkey: { toString: () => any; }; }, ix: anchor.web3.TransactionInstruction, rngKp: Keypair;
     try {
       rngKp = Keypair.generate();
       console.log("Generated RNG keypair:", rngKp.publicKey.toString());
@@ -74,8 +162,8 @@ const myProgramPath = "./target/deploy/lottery-keypair.json"; // Path to the lot
         ixs: [ix],
         payer: keypair.publicKey,
         signers: [keypair, rngKp],
-        computeUnitPrice: 75_000,
-        computeUnitLimitMultiple: 1.3,
+        computeUnitPrice: computeUnitPrice,
+        computeUnitLimitMultiple: computeUnitLimitMultiple,
       });
 
       console.log("Sending randomness account creation transaction...");
@@ -92,213 +180,291 @@ const myProgramPath = "./target/deploy/lottery-keypair.json"; // Path to the lot
 
     // Step 4: Initialize lottery state accounts
     console.log("\nStep 2: Initializing lottery state accounts...");
-    const [lotteryAccount, bump] = await PublicKey.findProgramAddress(
-        [Buffer.from("lottery")],  // Make sure this matches LOTTERY_SEED in Rust
-        lotteryProgram.programId
+    const [lotteryAccount, bump] = PublicKey.findProgramAddressSync(
+      [Buffer.from("lottery"), Buffer.from("lottery_1")],
+      lotteryProgram.programId
     );
     console.log("Lottery PDA:", lotteryAccount.toString());
     console.log("Lottery bump:", bump);
 
     // Before initializing the lottery, we should first check if it exists and close it if needed
     try {
-        console.log("Checking if lottery account exists...");
-        const existingLotteryAccount = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
-        if (existingLotteryAccount) {
-            console.log("Existing lottery account found, closing it...");
-            // You might want to add a close instruction to your program
-            // For now, we'll skip initialization
-            console.log("Skipping initialization as lottery already exists");
-        }
+      console.log("Checking if lottery account exists...");
+      const existingLotteryAccount = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
+      if (existingLotteryAccount) {
+        console.log("Existing lottery account found, closing it...");
+        await lotteryProgram.methods
+          .closeLottery("lottery_1")
+          .accounts({
+            lottery: lotteryAccount,
+            admin: keypair.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+        console.log("Existing lottery closed successfully");
+      }
     } catch (error) {
-        // If account doesn't exist, proceed with initialization
-        console.log("No existing lottery account found, proceeding with initialization...");
-        const entryFee = new anchor.BN(1000000); // 0.001 SOL
-        const endTime = new anchor.BN(Math.floor(Date.now() / 1000) + 3600); // 1 hour from now
-        
-        const tx = await lotteryProgram.methods
-            .initialize(entryFee, endTime)
-            .accounts({
-                lottery: lotteryAccount,
-                admin: keypair.publicKey,
-                systemProgram: SystemProgram.programId,
-            })
-            .rpc();
-            
-        console.log("Lottery initialized successfully. Tx:", tx);
+      if (error.message.includes("Account does not exist")) {
+        console.log("No existing lottery account found");
+      } else {
+        console.error("Error checking lottery account:", error);
+        throw error;
+      }
     }
 
-    // Add this before initialization attempt
-    try {
-        console.log("Attempting to close existing lottery...");
-        await lotteryProgram.methods
-            .closeLottery()
-            .accounts({
-                lottery: lotteryAccount,
-                admin: keypair.publicKey,
-                systemProgram: SystemProgram.programId,
-            })
-            .rpc();
-        console.log("Existing lottery closed successfully");
-    } catch (error) {
-        console.log("No existing lottery to close or close failed");
-    }
+    // Add a delay to ensure the close transaction is confirmed
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
     // Then proceed with initialization
+    console.log("Proceeding with initialization...");
+    try {
+      const entryFee = new anchor.BN(1000000); // 0.001 SOL
+      const endTime = new anchor.BN(Math.floor(Date.now() / 1000) + 5); // 5 seconds from now
 
-    // Step 5: Simulate user buying a ticket and purchase a ticket
-    console.log("\nStep 3: Setting up ticket purchase...");
-    const [playerStateAccount, playerStateBump] = PublicKey.findProgramAddressSync(
-      [Buffer.from(PLAYER_STATE_SEED), keypair.publicKey.toBuffer()],
-      lotteryProgram.programId
-    );
-    console.log("Player state PDA:", playerStateAccount.toString());
-    console.log("Player state bump:", playerStateBump);
+      const tx = await lotteryProgram.methods
+        .initialize(
+          "lottery_1",
+          entryFee,
+          endTime
+        )
+        .accounts({
+          lottery: lotteryAccount,
+          admin: keypair.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
 
-    const buyTicketIx = await createLotteryInstruction(
-      lotteryProgram,
+      console.log("Lottery initialized successfully. Tx:", tx);
+    } catch (error) {
+      console.error("Failed to initialize lottery:", error);
+      if (error.logs) {
+        console.error("Program logs:", error.logs);
+      }
+      throw error;
+    }
+
+    // Step 5: Set up multiple players and ticket purchases
+    console.log("\nStep 3: Setting up multiple ticket purchases...");
+
+    // Buy tickets for each participant
+    for (const participant of [keypair, participant1, participant2]) {
+      console.log(`\nBuying ticket for ${participant.publicKey.toString()}...`);
+      const buyTicketIx = await lotteryProgram.methods
+        .buyTicket("lottery_1")
+        .accounts({
+          lottery: lotteryAccount,
+          player: participant.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .instruction();
+
+      const buyTicketTx = await sb.asV0Tx({
+        connection: sbProgram.provider.connection,
+        ixs: [buyTicketIx],
+        payer: participant.publicKey,
+        signers: [participant],
+        computeUnitPrice: computeUnitPrice,
+        computeUnitLimitMultiple: computeUnitLimitMultiple,
+      });
+
+      const sig = await connection.sendTransaction(buyTicketTx, txOpts);
+      await confirmTx(connection, sig);
+      console.log(`Ticket purchased for ${participant.publicKey.toString()}`);
+    }
+
+    // Log total participants
+    const lotteryState: LotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
+    console.log(`\nLottery Status:`);
+    console.log(`Total tickets purchased: ${lotteryState.totalTickets}`);
+    console.log(`Total participants for lottery ID ${lotteryState.lotteryId}: ${lotteryState.participants.length}`);
+
+    // Log balances for all participants
+    await logBalances(
+      connection,
       lotteryAccount,
-      playerStateAccount,
-      rngKp.publicKey,
-      keypair
+      keypair.publicKey,
+      [
+        { name: "Admin", pubkey: keypair.publicKey },
+        { name: "Participant 1", pubkey: participant1.publicKey },
+        { name: "Participant 2", pubkey: participant2.publicKey }
+      ]
     );
 
-    const buyTicketTx = await sb.asV0Tx({
-      connection: sbProgram.provider.connection,
-      ixs: [buyTicketIx],
-      payer: keypair.publicKey,
-      signers: [keypair],
-      computeUnitPrice: 75_000,
-      computeUnitLimitMultiple: 1.3,
-    });
-
-    const sig2 = await connection.sendTransaction(buyTicketTx, txOpts);
-    await confirmTx(connection, sig2);
-    console.log("  Transaction Signature for buying ticket: ", sig2);
+    // Before selecting winner, add wait
+    console.log("\nWaiting for lottery to end...");
+    await sleep(6000); // Wait 6 seconds
+    console.log("Lottery end time reached");
 
     // Step 6: Select a winner using randomness
     console.log("\nStep 4: Selecting winner...");
-    const selectWinnerIx = await createSelectWinnerInstruction(
-      lotteryProgram,
-      lotteryAccount,
-      randomness.pubkey, // Use the Switchboard randomness account
-      keypair
-    );
-
-    const selectWinnerTx = await sb.asV0Tx({
-      connection: sbProgram.provider.connection,
-      ixs: [selectWinnerIx],
-      payer: keypair.publicKey,
-      signers: [keypair],
-      computeUnitPrice: 75_000,
-      computeUnitLimitMultiple: 1.3,
-    });
-
-    console.log("Sending select winner transaction...");
-    const sig3 = await connection.sendTransaction(selectWinnerTx, txOpts);
-    await confirmTx(connection, sig3);
-    console.log("Winner selection confirmed:", sig3);
-
-    // Add verification of winner selection
     try {
-      const lotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
-      if (lotteryState.winner) {
-        console.log("Winner selected:", lotteryState.winner.toString());
-      } else {
-        console.log("No winner was selected!");
+      // Create randomness account
+      const rngKp = Keypair.generate();
+      const [randomness, ix] = await sb.Randomness.create(sbProgram, rngKp, queue);
+      console.log("Created randomness account:", randomness.pubkey.toString());
+
+      // Initialize randomness
+      const createRandomnessTx = await sb.asV0Tx({
+        connection: sbProgram.provider.connection,
+        ixs: [ix],
+        payer: keypair.publicKey,
+        signers: [keypair, rngKp],
+      });
+
+      const initSig = await connection.sendTransaction(createRandomnessTx, txOpts);
+      await confirmTx(connection, initSig);
+      console.log("Randomness initialized. Tx:", initSig);
+
+      // First send commit instruction
+      console.log("Committing to randomness...");
+      const commitIx = await randomness.commitIx(queue);
+
+      const commitTx = await sb.asV0Tx({
+        connection: sbProgram.provider.connection,
+        ixs: [commitIx],
+        payer: keypair.publicKey,
+        signers: [keypair],
+        computeUnitPrice: computeUnitPrice,
+        computeUnitLimitMultiple: computeUnitLimitMultiple,
+      });
+
+      // Simulate first
+      await connection.simulateTransaction(commitTx, txOpts);
+
+      // Then send and confirm
+      const commitSig = await connection.sendTransaction(commitTx, {
+        skipPreflight: true,
+        preflightCommitment: txOpts.commitment,
+        maxRetries: txOpts.maxRetries,
+      });
+      const latestBlockHash = await connection.getLatestBlockhash();
+
+      await connection.confirmTransaction({
+        signature: commitSig,
+        blockhash: latestBlockHash.blockhash,
+        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight
+      });
+      console.log("Randomness committed! Tx:", commitSig);
+
+      // Wait for next slot
+      await sleep(2000);
+
+      // Then reveal and select winner in the same transaction
+      console.log("Revealing randomness and selecting winner...");
+      const revealIx = await randomness.revealIx();
+      const selectWinnerIx = await createSelectWinnerInstruction(
+        lotteryProgram,
+        lotteryAccount,
+        randomness.pubkey,
+        keypair
+      );
+
+      const revealTx = await sb.asV0Tx({
+        connection: sbProgram.provider.connection,
+        ixs: [revealIx, selectWinnerIx],  // Combine reveal and select winner
+        payer: keypair.publicKey,
+        signers: [keypair],
+        computeUnitPrice: computeUnitPrice,
+        computeUnitLimitMultiple: computeUnitLimitMultiple,
+      });
+
+      const revealSig = await connection.sendTransaction(revealTx, txOpts);
+      await confirmTx(connection, revealSig);
+      console.log("Randomness revealed! Tx:", revealSig);
+
+      const answer = await connection.getParsedTransaction(revealSig, {
+        maxSupportedTransactionVersion: 0,
+      });
+      console.log("On-chain logs:", answer?.meta?.logMessages);
+      let resultLog = answer?.meta?.logMessages?.filter((line) =>
+        line.includes("Winner successfully selected:")
+      )[0];
+
+      let result = resultLog?.split(": ")[2];
+      console.log("Winner:", result);
+
+      // After selecting winner
+      await logBalances(
+        connection,
+        lotteryAccount,
+        keypair.publicKey,
+        [
+          { name: "Admin", pubkey: keypair.publicKey },
+          { name: "Participant 1", pubkey: participant1.publicKey },
+          { name: "Participant 2", pubkey: participant2.publicKey }
+        ]
+      );
+
+      // Add verification of winner selection
+      try {
+        const lotteryState: LotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
+        if (lotteryState.winner) {
+          console.log("Verified winner selected:", lotteryState.winner.toString());
+        } else {
+          console.log("No winner was selected!");
+          process.exit(1);
+        }
+      } catch (error) {
+        console.error("Failed to verify winner selection:", error);
         process.exit(1);
       }
+
+      // After winner selection
+      const lotteryState: LotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
+      if (!lotteryState.winner) {
+        throw new Error("No winner was selected");
+      }
+
+      // Find the winning keypair
+      let winningKeypair: Keypair;
+      const winningPubkey = new PublicKey(lotteryState.winner.toString());
+
+      if (winningPubkey.equals(keypair.publicKey)) {
+        winningKeypair = keypair;
+      } else if (winningPubkey.equals(participant1.publicKey)) {
+        winningKeypair = participant1;
+      } else if (winningPubkey.equals(participant2.publicKey)) {
+        winningKeypair = participant2;
+      } else {
+        throw new Error("Winner not found among participants");
+      }
+
+      console.log(`Winner ${winningKeypair.publicKey.toString()} claiming prize...`);
+
+      // Step 7: Claim prize by the winner
+      const claimPrizeIx = await claimPrizeInstruction(
+        lotteryProgram,
+        lotteryAccount,
+        winningKeypair  // Use winning keypair instead of default keypair
+      );
+
+      const claimPrizeTx = await sb.asV0Tx({
+        connection: sbProgram.provider.connection,
+        ixs: [claimPrizeIx],
+        payer: winningKeypair.publicKey,
+        signers: [winningKeypair],
+        computeUnitPrice: computeUnitPrice,
+        computeUnitLimitMultiple: computeUnitLimitMultiple,
+      });
+
+      const sig4 = await connection.sendTransaction(claimPrizeTx, txOpts);
+      await confirmTx(connection, sig4);
+      console.log("Prize claimed successfully! Tx:", sig4);
+      await logBalances(
+        connection,
+        lotteryAccount,
+        keypair.publicKey,
+        [
+          { name: "Admin", pubkey: keypair.publicKey },
+          { name: "Participant 1", pubkey: participant1.publicKey },
+          { name: "Participant 2", pubkey: participant2.publicKey }
+        ]
+      );
+      process.exit(0);
     } catch (error) {
-      console.error("Failed to verify winner selection:", error);
+      console.error("Failed to select winner:", error);
       process.exit(1);
     }
-
-    // Step 7: Claim prize by the winner
-    const claimPrizeIx = await claimPrizeInstruction(
-      lotteryProgram,
-      lotteryAccount,
-      playerStateAccount,
-      keypair
-    );
-
-    const claimPrizeTx = await sb.asV0Tx({
-      connection: sbProgram.provider.connection,
-      ixs: [claimPrizeIx],
-      payer: keypair.publicKey,
-      signers: [keypair],
-      computeUnitPrice: 75_000,
-      computeUnitLimitMultiple: 1.3,
-    });
-
-    const sig4 = await connection.sendTransaction(claimPrizeTx, txOpts);
-    await confirmTx(connection, sig4);
-    console.log("  Transaction Signature for claiming prize: ", sig4);
-
-    // Function to create PDA for a lottery
-    async function getLotteryAddress(programId: PublicKey, lotteryId: string): Promise<[PublicKey, number]> {
-        return await PublicKey.findProgramAddress(
-            [
-                Buffer.from("lottery"),
-                Buffer.from(lotteryId),
-            ],
-            programId
-        );
-    }
-
-    // In your test code, create multiple lotteries
-    const lottery1Id = "lottery_1";
-    const lottery2Id = "lottery_2";
-
-    // Get PDAs for both lotteries
-    const [lottery1Account, bump1] = await getLotteryAddress(lotteryProgram.programId, lottery1Id);
-    const [lottery2Account, bump2] = await getLotteryAddress(lotteryProgram.programId, lottery2Id);
-
-    // Initialize first lottery
-    const tx1 = await lotteryProgram.methods
-        .initialize(
-            lottery1Id,
-            new anchor.BN(1000000), // entry fee
-            new anchor.BN(Math.floor(Date.now() / 1000) + 3600)
-        )
-        .accounts({
-            lottery: lottery1Account,
-            admin: keypair.publicKey,
-            systemProgram: SystemProgram.programId,
-        })
-        .rpc();
-
-    console.log("Lottery 1 initialized:", tx1);
-
-    // Initialize second lottery
-    const tx2 = await lotteryProgram.methods
-        .initialize(
-            lottery2Id,
-            new anchor.BN(2000000), // different entry fee
-            new anchor.BN(Math.floor(Date.now() / 1000) + 7200) // different end time
-        )
-        .accounts({
-            lottery: lottery2Account,
-            admin: keypair.publicKey,
-            systemProgram: SystemProgram.programId,
-        })
-        .rpc();
-
-    console.log("Lottery 2 initialized:", tx2);
-
-    // Buy tickets for specific lottery
-    const buyTicketForLottery = async (lotteryId: string, lotteryAccount: PublicKey) => {
-        await lotteryProgram.methods
-            .buyTicket(lotteryId)
-            .accounts({
-                lottery: lotteryAccount,
-                player: keypair.publicKey,
-                systemProgram: SystemProgram.programId,
-            })
-            .rpc();
-    };
-
-    // Example usage
-    await buyTicketForLottery(lottery1Id, lottery1Account);
-    await buyTicketForLottery(lottery2Id, lottery2Account);
   } catch (error) {
     console.error("Main execution failed:");
     console.error("Error:", error);
@@ -347,81 +513,26 @@ async function loadSbProgram(provider: anchor.Provider): Promise<anchor.Program>
 }
 
 // Function to initialize the lottery
-async function initializeLottery(
-  lotteryProgram: anchor.Program,
-  lotteryAccount: PublicKey,
-  keypair: Keypair,
-  sbProgram: anchor.Program,
-  connection: Connection
-): Promise<void> {
-  console.log("Creating initialize instruction...");
-  
-  // Add these parameters that are required by your Rust program
-  const entryFee = new anchor.BN(1000000); // 0.001 SOL
-  const endTime = new anchor.BN(Math.floor(Date.now() / 1000) + 3600); // 1 hour from now
-  
-  const initIx = await lotteryProgram.methods
-    .initialize(entryFee, endTime)  // Add the required parameters
-    .accounts({
-      lottery: lotteryAccount,      // Changed from 'lotteryAccount' to 'lottery'
-      admin: keypair.publicKey,     // Changed from 'user' to 'admin'
-      systemProgram: SystemProgram.programId,
-    })
-    .instruction();
-
-  console.log("Initialize instruction created");
-
-  // Sending the transaction to initialize the lottery
-  console.log("Sending initialize transaction...");
-  const txOpts = {
-    commitment: "processed" as Commitment,
-    skipPreflight: true,
-    maxRetries: 0,
-  };
-
-  await handleTransaction(sbProgram, connection, [initIx], keypair, [keypair], txOpts);
-  console.log("Initialize transaction completed");
-}
 // Function to create the instruction for buying a lottery ticket
-async function createLotteryInstruction(
-  lotteryProgram: anchor.Program,
-  lotteryAccount: PublicKey,
-  playerStateAccount: PublicKey,
-  randomnessAccount: PublicKey,
-  keypair: Keypair
-): Promise<anchor.web3.TransactionInstruction> {
-  return await lotteryProgram.methods
-    .buyTicket()
-    .accounts({
-      lottery: lotteryAccount,
-      playerState: playerStateAccount,
-      randomnessAccount: randomnessAccount,
-      user: keypair.publicKey,
-      systemProgram: SystemProgram.programId,
-    })
-    .instruction();
-}
 
 // Function to create the instruction for claiming the prize
 async function claimPrizeInstruction(
   lotteryProgram: anchor.Program,
   lotteryAccount: PublicKey,
-  playerStateAccount: PublicKey,
   keypair: Keypair
 ): Promise<anchor.web3.TransactionInstruction> {
   return await lotteryProgram.methods
-    .claimPrize()
+    .claimPrize("lottery_1")
     .accounts({
-      lottery: lotteryAccount,      // Changed from lotteryAccount to lottery
-      playerState: playerStateAccount,
-      user: keypair.publicKey,
-      developer: keypair.publicKey,  // Added missing developer account
+      lottery: lotteryAccount,
+      player: keypair.publicKey,
+      developer: keypair.publicKey,
       systemProgram: SystemProgram.programId,
     })
     .instruction();
 }
 
-// Add this new function for selecting winners
+// Create select winner instruction function
 async function createSelectWinnerInstruction(
   lotteryProgram: anchor.Program,
   lotteryAccount: PublicKey,
@@ -429,11 +540,10 @@ async function createSelectWinnerInstruction(
   keypair: Keypair
 ): Promise<anchor.web3.TransactionInstruction> {
   return await lotteryProgram.methods
-    .selectWinner()
+    .selectWinner("lottery_1")
     .accounts({
       lottery: lotteryAccount,
-      randomnessAccountData: randomnessAccount,  // This matches your Rust program
-      user: keypair.publicKey,
+      randomnessAccountData: randomnessAccount,
       systemProgram: SystemProgram.programId,
     })
     .instruction();
@@ -454,8 +564,8 @@ export async function handleTransaction(
     ixs: ix,
     payer: keypair.publicKey,
     signers: signers,
-    computeUnitPrice: 75_000,
-    computeUnitLimitMultiple: 1.3,
+    computeUnitPrice: computeUnitPrice,
+    computeUnitLimitMultiple: computeUnitLimitMultiple,
   });
 
   console.log("Simulating transaction...");
@@ -477,7 +587,7 @@ async function confirmTx(connection: Connection, signature: string) {
       signature,
       blockhash: latestBlockhash.blockhash,
       lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
-    }, 'confirmed');  // Change commitment level to 'confirmed'
+    }, commitment);  // Change commitment level to 'confirmed'
 
     if (confirmation.value.err) {
       throw new Error(`Transaction failed: ${confirmation.value.err.toString()}`);

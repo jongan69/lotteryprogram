@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use switchboard_on_demand::accounts::RandomnessAccountData;
 use anchor_lang::system_program;
 
-declare_id!("GHZdzKPkWc7pnDaA2GSTfgnXmbmnfQy6jLWq6AwrSMY3");
+declare_id!("AxL3SAtyAEDWHopxCwC7FmV7LxzhXgZjpfpVyUvLwRhX");
 
 pub const LOTTERY_SEED: &[u8] = b"lottery";
 pub const MAX_PARTICIPANTS: u32 = 100;
@@ -27,7 +27,11 @@ pub mod lottery {
         Ok(())
     }
 
-    pub fn buy_ticket(ctx: Context<BuyTicket>) -> Result<()> {
+    pub fn buy_ticket(ctx: Context<BuyTicket>, lottery_id: String) -> Result<()> {
+        require!(
+            ctx.accounts.lottery.lottery_id == lottery_id,
+            LotteryError::InvalidLotteryId
+        );
         require!(
             Clock::get().unwrap().unix_timestamp <= ctx.accounts.lottery.end_time,
             LotteryError::LotteryClosed
@@ -42,7 +46,11 @@ pub mod lottery {
         );
 
         let entry_fee = ctx.accounts.lottery.entry_fee;
-
+        msg!(
+            "Player balance before purchase: {} lamports",
+            ctx.accounts.player.lamports()
+        );
+        
         let cpi_context = CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
             system_program::Transfer {
@@ -52,6 +60,15 @@ pub mod lottery {
         );
         system_program::transfer(cpi_context, entry_fee)?;
 
+        msg!(
+            "Player balance after purchase: {} lamports",
+            ctx.accounts.player.lamports()
+        );
+        msg!(
+            "Lottery pool balance: {} lamports",
+            ctx.accounts.lottery.to_account_info().lamports()
+        );
+        
         // Store the player's index using the lottery's current index
         let lottery = &mut ctx.accounts.lottery;
         lottery.participants.push(ctx.accounts.player.key()); // Use a vector for fixed participants
@@ -64,53 +81,83 @@ pub mod lottery {
         Ok(())
     }
 
-    pub fn select_winner(ctx: Context<SelectWinner>) -> Result<()> {
-        let lottery = &mut ctx.accounts.lottery;
-
-        // 1. Verify lottery has ended and no winner selected yet
+    pub fn select_winner(ctx: Context<SelectWinner>, lottery_id: String) -> Result<()> {
+        msg!("Starting select_winner process...");
+        
         require!(
-            Clock::get().unwrap().unix_timestamp > lottery.end_time,
+            ctx.accounts.lottery.lottery_id == lottery_id,
+            LotteryError::InvalidLotteryId
+        );
+        msg!("Lottery ID verified");
+
+        let lottery = &mut ctx.accounts.lottery;
+        
+        // 1. Verify lottery has ended
+        let current_time = Clock::get().unwrap().unix_timestamp;
+        msg!("Current time: {}, End time: {}", current_time, lottery.end_time);
+        require!(
+            current_time > lottery.end_time,
             LotteryError::LotteryNotEnded
         );
+        msg!("Lottery end time verified");
+
+        // 2. Check winner status
         require!(lottery.winner.is_none(), LotteryError::WinnerAlreadySelected);
+        msg!("No winner previously selected");
         
-        // 2. Verify there are participants
+        // 3. Check participants
+        msg!("Total tickets: {}, Participants: {}", lottery.total_tickets, lottery.participants.len());
         require!(
             lottery.total_tickets > 0 && !lottery.participants.is_empty(),
             LotteryError::NoParticipants
         );
 
-        // 3. Get randomness from Switchboard
+        // 4. Get randomness
+        msg!("Attempting to parse randomness data...");
         let randomness_data = RandomnessAccountData::parse(
             ctx.accounts.randomness_account_data.data.borrow()
-        ).map_err(|_| LotteryError::RandomnessUnavailable)?;
+        ).map_err(|_| {
+            msg!("Failed to parse randomness data");
+            LotteryError::RandomnessUnavailable
+        })?;
+        msg!("Randomness data parsed successfully");
 
+        msg!("Attempting to get randomness value...");
         let clock = Clock::get()?;
         let randomness_result = randomness_data
             .get_value(&clock)
-            .map_err(|_| LotteryError::RandomnessNotResolved)?;
+            .map_err(|_| {
+                msg!("Randomness not yet resolved");
+                LotteryError::RandomnessNotResolved
+            })?;
+        msg!("Got randomness value");
 
-        // 4. Guarantee winner selection
+        // 5. Select winner
         let winner_index = (randomness_result[0] as usize) % lottery.total_tickets as usize;
+        msg!("Calculated winner index: {}", winner_index);
         
-        // Safety check - ensure index is valid
         require!(
             winner_index < lottery.participants.len(),
             LotteryError::InvalidWinnerIndex
         );
 
-        // 5. Set the winner - this cannot fail now
         let winner_pubkey = lottery.participants[winner_index];
         lottery.winner = Some(winner_pubkey);
 
-        msg!("Winner selected: {:?}", winner_pubkey);
+        msg!("Winner successfully selected: {:?}", winner_pubkey);
         msg!("Winner index: {}", winner_index);
         msg!("Total participants: {}", lottery.total_tickets);
 
         Ok(())
     }
 
-    pub fn claim_prize(ctx: Context<ClaimPrize>) -> Result<()> {
+    pub fn claim_prize(ctx: Context<ClaimPrize>, lottery_id: String) -> Result<()> {
+        // Add lottery ID verification
+        require!(
+            ctx.accounts.lottery.lottery_id == lottery_id,
+            LotteryError::InvalidLotteryId
+        );
+        
         require!(
             Some(ctx.accounts.player.key()) == ctx.accounts.lottery.winner,
             LotteryError::NotWinner
@@ -148,13 +195,25 @@ pub mod lottery {
         lottery.index = 0;  // Reset participant index
         lottery.winner = None;
 
+        msg!(
+            "Final balances - Winner: {} lamports, Developer: {} lamports, Pool: {} lamports",
+            ctx.accounts.player.lamports(),
+            ctx.accounts.developer.lamports(),
+            ctx.accounts.lottery.to_account_info().lamports()
+        );
         msg!("Prize of {} lamports claimed by: {:?}", prize_amount, ctx.accounts.player.key());
         msg!("Developer share of {} lamports transferred.", developer_share);
         msg!("Lottery has been reset for the next round");
         Ok(())
     }
 
-    pub fn close_lottery(ctx: Context<CloseLottery>) -> Result<()> {
+    pub fn close_lottery(ctx: Context<CloseLottery>, lottery_id: String) -> Result<()> {
+        // Verify this is the lottery we want to close
+        require!(
+            ctx.accounts.lottery.lottery_id == lottery_id,
+            LotteryError::InvalidLotteryId
+        );
+
         // Transfer remaining lamports to admin
         let dest_starting_lamports = ctx.accounts.admin.lamports();
         let lottery_lamports = ctx.accounts.lottery.to_account_info().lamports();
@@ -294,4 +353,6 @@ pub enum LotteryError {
     RandomnessNotResolved,
     #[msg("Invalid winner index.")]
     InvalidWinnerIndex,
+    #[msg("Invalid lottery ID")]
+    InvalidLotteryId,
 }
