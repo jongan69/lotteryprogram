@@ -22,7 +22,11 @@ let clientPromise: Promise<MongoClient>;
 
 async function getMongoClient() {
     if (!clientPromise) {
-        clientPromise = MongoClient.connect(MONGODB_URI);
+        clientPromise = MongoClient.connect(MONGODB_URI, {
+            monitorCommands: true,
+            serverSelectionTimeoutMS: 5000, // Adjust the timeout as needed
+            socketTimeoutMS: 45000, // Adjust the socket timeout as needed
+        });
     }
     return clientPromise;
 }
@@ -84,20 +88,20 @@ async function processTask(task: Task) {
     const wallet = {
         publicKey: adminKeypair.publicKey,
         signTransaction: async <T extends anchor.web3.Transaction | anchor.web3.VersionedTransaction>(tx: T): Promise<T> => {
-          if (tx instanceof anchor.web3.Transaction) {
-            tx.partialSign(adminKeypair);
-          }
-          return tx;
+            if (tx instanceof anchor.web3.Transaction) {
+                tx.partialSign(adminKeypair);
+            }
+            return tx;
         },
         signAllTransactions: async <T extends anchor.web3.Transaction | anchor.web3.VersionedTransaction>(txs: T[]): Promise<T[]> => {
-          txs.forEach(tx => {
-            if (tx instanceof anchor.web3.Transaction) {
-              tx.partialSign(adminKeypair);
-            }
-          });
-          return txs;
+            txs.forEach(tx => {
+                if (tx instanceof anchor.web3.Transaction) {
+                    tx.partialSign(adminKeypair);
+                }
+            });
+            return txs;
         },
-      };
+    };
     const provider = new anchor.AnchorProvider(connection, wallet, { commitment: COMMITMENT });
 
     let lotteryProgram: any;
