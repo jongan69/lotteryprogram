@@ -81,118 +81,146 @@ async function setupQueue(program: anchor.Program<anchor.Idl>) {
 }
 
 async function processTask(task: Task) {
-    const { action, params } = task;
+    const client = await getMongoClient();
+    const db = client.db("taskQueue");
+    const tasks = db.collection("tasks");
 
-    if (action !== "selectWinner") {
-        throw new Error(`Unsupported task action: ${action}`);
-    }
+    const { action, params, _id } = task;
+    if (!_id) throw new Error("Task ID is required");
 
-    const { lotteryId } = params;
-    if (!lotteryId) {
-        throw new Error("Lottery ID is required");
-    }
+    try {
+        await updateTaskLog(tasks, _id, `Starting ${action} task`, 'info');
 
-    const adminKeypair = Keypair.fromSecretKey(bs58.decode(ADMIN_KEY));
-    const connection = new Connection(RPC_URL, COMMITMENT);
+        if (action !== "selectWinner") {
+            throw new Error(`Unsupported task action: ${action}`);
+        }
 
-    const wallet = {
-        publicKey: adminKeypair.publicKey,
-        signTransaction: async <T extends anchor.web3.Transaction | anchor.web3.VersionedTransaction>(tx: T): Promise<T> => {
-            if (tx instanceof anchor.web3.Transaction) {
-                tx.partialSign(adminKeypair);
-            }
-            return tx;
-        },
-        signAllTransactions: async <T extends anchor.web3.Transaction | anchor.web3.VersionedTransaction>(txs: T[]): Promise<T[]> => {
-            txs.forEach(tx => {
+        const { lotteryId } = params;
+        if (!lotteryId) {
+            throw new Error("Lottery ID is required");
+        }
+
+        await updateTaskLog(tasks, _id, `Initializing lottery selection for ID: ${lotteryId}`, 'info');
+
+        const adminKeypair = Keypair.fromSecretKey(bs58.decode(ADMIN_KEY));
+        const connection = new Connection(RPC_URL, COMMITMENT);
+
+        const wallet = {
+            publicKey: adminKeypair.publicKey,
+            signTransaction: async <T extends anchor.web3.Transaction | anchor.web3.VersionedTransaction>(tx: T): Promise<T> => {
                 if (tx instanceof anchor.web3.Transaction) {
                     tx.partialSign(adminKeypair);
                 }
-            });
-            return txs;
-        },
-    };
-    const provider = new anchor.AnchorProvider(connection, wallet, { commitment: COMMITMENT });
+                return tx;
+            },
+            signAllTransactions: async <T extends anchor.web3.Transaction | anchor.web3.VersionedTransaction>(txs: T[]): Promise<T[]> => {
+                txs.forEach(tx => {
+                    if (tx instanceof anchor.web3.Transaction) {
+                        tx.partialSign(adminKeypair);
+                    }
+                });
+                return txs;
+            },
+        };
+        const provider = new anchor.AnchorProvider(connection, wallet, { commitment: COMMITMENT });
 
-    let lotteryProgram: any;
-    try {
-        const idl = await anchor.Program.fetchIdl(PROGRAM_ID, provider);
-        if (!idl) {
-            throw new Error("IDL not found for program");
+        await updateTaskLog(tasks, _id, "Fetching lottery program", 'info');
+        let lotteryProgram: any;
+        try {
+            const idl = await anchor.Program.fetchIdl(PROGRAM_ID, provider);
+            if (!idl) {
+                throw new Error("IDL not found for program");
+            }
+            lotteryProgram = new anchor.Program(idl, provider);
+            await updateTaskLog(tasks, _id, "Lottery program initialized", 'success');
+        } catch (error) {
+            await updateTaskLog(tasks, _id, "Failed to initialize lottery program", 'error', { error: (error as Error).message });
+            throw error;
         }
-        lotteryProgram = new anchor.Program(idl, provider);
+
+        await updateTaskLog(tasks, _id, "Fetching lottery state", 'info');
+        const [lotteryAccount] = PublicKey.findProgramAddressSync(
+            [Buffer.from("lottery"), Buffer.from(lotteryId)],
+            lotteryProgram.programId
+        );
+
+        const lotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
+        await updateTaskLog(tasks, _id, `Found ${lotteryState.participants?.length || 0} participants`, 'info');
+
+        if (!lotteryState.participants || lotteryState.participants.length === 0) {
+            throw new Error("No participants found in the lottery");
+        }
+
+        await updateTaskLog(tasks, _id, "Initializing Switchboard randomness", 'info');
+        const rngKeypair = Keypair.generate();
+        const sbProgramId = await sb.getProgramId(connection);
+        const sbIdl = await anchor.Program.fetchIdl(sbProgramId, provider);
+        if (!sbIdl) throw new Error("IDL not found for Switchboard program");
+
+        const sbProgram = new anchor.Program(sbIdl, provider);
+        const queue = await setupQueue(sbProgram);
+
+        const [randomnessAccount, createRandomnessIx] = await sb.Randomness.create(sbProgram, rngKeypair, queue);
+
+        await updateTaskLog(tasks, _id, "Creating randomness account", 'info');
+        const createRandomnessTx = await sb.asV0Tx({
+            connection: sbProgram.provider.connection,
+            ixs: [createRandomnessIx],
+            payer: adminKeypair.publicKey,
+            signers: [adminKeypair, rngKeypair],
+        });
+        const randomnessSig = await connection.sendTransaction(createRandomnessTx, txOpts);
+        await confirmTransaction(connection, randomnessSig);
+        await updateTaskLog(tasks, _id, "Randomness account created", 'success', { signature: randomnessSig });
+
+        await updateTaskLog(tasks, _id, "Committing randomness", 'info');
+        const commitIx = await randomnessAccount.commitIx(queue);
+        const commitTx = await sb.asV0Tx({
+            connection,
+            ixs: [commitIx],
+            payer: adminKeypair.publicKey,
+            signers: [adminKeypair],
+            computeUnitPrice,
+            computeUnitLimitMultiple,
+        });
+        const commitSig = await connection.sendTransaction(commitTx, txOpts);
+        await confirmTransaction(connection, commitSig);
+        await updateTaskLog(tasks, _id, "Randomness committed", 'success', { signature: commitSig });
+
+        await updateTaskLog(tasks, _id, "Revealing winner", 'info');
+        const revealIx = await randomnessAccount.revealIx();
+        const selectWinnerIx = await createSelectWinnerInstruction(
+            lotteryProgram,
+            lotteryAccount,
+            randomnessAccount.pubkey,
+            lotteryId
+        );
+
+        const revealTx = await sb.asV0Tx({
+            connection,
+            ixs: [revealIx, selectWinnerIx],
+            payer: adminKeypair.publicKey,
+            signers: [adminKeypair],
+            computeUnitPrice,
+            computeUnitLimitMultiple,
+        });
+        const revealSig = await connection.sendTransaction(revealTx, txOpts);
+        await confirmTransaction(connection, revealSig);
+        await updateTaskLog(tasks, _id, "Winner revealed", 'success', { signature: revealSig });
+
+        const result = {
+            randomnessSig,
+            commitSig,
+            revealSig,
+            lotteryId
+        };
+
+        await updateTaskLog(tasks, _id, `Winner selected successfully for lottery ID ${lotteryId}`, 'success', result);
+        return result;
     } catch (error) {
-        console.error("Error initializing lottery program:", error);
+        await updateTaskLog(tasks, _id, (error as Error).message, 'error');
         throw error;
     }
-
-    const [lotteryAccount] = PublicKey.findProgramAddressSync(
-        [Buffer.from("lottery"), Buffer.from(lotteryId)],
-        lotteryProgram.programId
-    );
-
-    const lotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
-    if (!lotteryState.participants || lotteryState.participants.length === 0) {
-        throw new Error("No participants found in the lottery");
-    }
-
-    const rngKeypair = Keypair.generate();
-    const sbProgramId = await sb.getProgramId(connection);
-    const sbIdl = await anchor.Program.fetchIdl(sbProgramId, provider);
-    if (!sbIdl) throw new Error("IDL not found for Switchboard program");
-
-    const sbProgram = new anchor.Program(sbIdl, provider);
-    const queue = await setupQueue(sbProgram);
-
-    const [randomnessAccount, createRandomnessIx] = await sb.Randomness.create(sbProgram, rngKeypair, queue);
-
-    const createRandomnessTx = await sb.asV0Tx({
-        connection: sbProgram.provider.connection,
-        ixs: [createRandomnessIx],
-        payer: adminKeypair.publicKey,
-        signers: [adminKeypair, rngKeypair],
-    });
-    const randomnessSig = await connection.sendTransaction(createRandomnessTx, txOpts);
-    await confirmTransaction(connection, randomnessSig);
-
-    const commitIx = await randomnessAccount.commitIx(queue);
-    const commitTx = await sb.asV0Tx({
-        connection,
-        ixs: [commitIx],
-        payer: adminKeypair.publicKey,
-        signers: [adminKeypair],
-        computeUnitPrice,
-        computeUnitLimitMultiple,
-    });
-    const commitSig = await connection.sendTransaction(commitTx, txOpts);
-    await confirmTransaction(connection, commitSig);
-
-    const revealIx = await randomnessAccount.revealIx();
-    const selectWinnerIx = await createSelectWinnerInstruction(
-        lotteryProgram,
-        lotteryAccount,
-        randomnessAccount.pubkey,
-        lotteryId
-    );
-
-    const revealTx = await sb.asV0Tx({
-        connection,
-        ixs: [revealIx, selectWinnerIx],
-        payer: adminKeypair.publicKey,
-        signers: [adminKeypair],
-        computeUnitPrice,
-        computeUnitLimitMultiple,
-    });
-    const revealSig = await connection.sendTransaction(revealTx, txOpts);
-    await confirmTransaction(connection, revealSig);
-
-    console.log(`Winner selected successfully for lottery ID ${lotteryId}`);
-    return {
-        randomnessSig,
-        commitSig,
-        revealSig,
-        lotteryId
-    };
 }
 
 async function processQueue() {
@@ -259,6 +287,36 @@ export interface Task {
     result: any;
     createdAt: Date;
     updatedAt: Date;
+    logs: Array<{
+        timestamp: Date;
+        message: string;
+        type: 'info' | 'error' | 'success';
+        data?: any;
+    }>;
+}
+
+async function updateTaskLog(
+    tasks: any,
+    taskId: ObjectId,
+    message: string,
+    type: 'info' | 'error' | 'success' = 'info',
+    data?: any
+) {
+    const logEntry = {
+        timestamp: new Date(),
+        message,
+        type,
+        ...(data ? { data } : {})
+    };
+
+    await tasks.updateOne(
+        { _id: taskId },
+        { 
+            $push: { logs: logEntry },
+            $set: { updatedAt: new Date() }
+        }
+    );
+    return logEntry;
 }
 
 export const taskQueue = {
@@ -274,13 +332,11 @@ export const taskQueue = {
             result: null,
             createdAt: new Date(),
             updatedAt: new Date(),
+            logs: []  // Initialize empty logs array
         };
 
         const result = await tasks.insertOne(task);
-        
-        // Start processing immediately when a task is enqueued
         startProcessing();
-        
         return result.insertedId;
     },
 
