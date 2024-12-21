@@ -8,7 +8,7 @@ import { useParams } from 'next/navigation'
 import { ExplorerLink } from '../cluster/cluster-ui'
 import { AppHero, ellipsify } from '../ui/ui-layout'
 import { AccountBalance, AccountButtons, AccountTokens, AccountTransactions } from './account-ui'
-
+import { AccountLotteryPrizes } from './account-prizes'
 export default function AccountDetailFeature() {
   const params = useParams()
   const address = useMemo(() => {
@@ -30,16 +30,17 @@ export default function AccountDetailFeature() {
       <AppHero
         title={<AccountBalance address={address} />}
         subtitle={
-          <div className="my-4">
+          <div className="my-2 sm:my-4 break-all">
             <ExplorerLink path={`account/${address}`} label={ellipsify(address.toString())} />
           </div>
         }
       >
-        <div className="my-4">
+        <div className="my-2 sm:my-4">
           <AccountButtons address={address} />
         </div>
       </AppHero>
-      <div className="space-y-8">
+      <div className="space-y-4 sm:space-y-8 px-2 sm:px-0">
+        <AccountLotteryPrizes address={address} />
         <AccountTokens address={address} />
         <AccountTransactions address={address} />
       </div>

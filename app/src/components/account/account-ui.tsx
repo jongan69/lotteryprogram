@@ -4,7 +4,7 @@ import { useWallet } from '@solana/wallet-adapter-react'
 import { LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js'
 import { IconRefresh } from '@tabler/icons-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { AppModal, ellipsify } from '../ui/ui-layout'
 import { useCluster } from '../cluster/cluster-data-access'
 import { ExplorerLink } from '../cluster/cluster-ui'
@@ -15,13 +15,21 @@ import {
   useRequestAirdrop,
   useTransferSol,
 } from './account-data-access'
+import { AccountLotteryPrizes } from './account-prizes'
+
+interface LotteryState {
+  lotteryId: string;
+  status: 'pending' | 'completed';
+  processing?: boolean;
+}
+
 
 export function AccountBalance({ address }: { address: PublicKey }) {
   const query = useGetBalance({ address })
 
   return (
     <div>
-      <h1 className="text-5xl font-bold cursor-pointer" onClick={() => query.refetch()}>
+      <h1 className="text-3xl lg:text-5xl font-bold cursor-pointer" onClick={() => query.refetch()}>
         {query.data ? <BalanceSol balance={query.data} /> : '...'} SOL
       </h1>
     </div>
@@ -108,7 +116,7 @@ export function AccountTokens({ address }: { address: PublicKey }) {
     <div className="space-y-2">
       <div className="justify-between">
         <div className="flex justify-between">
-          <h2 className="text-2xl font-bold">Token Accounts</h2>
+          <h2 className="text-xl lg:text-2xl font-bold">Token Accounts</h2>
           <div className="space-x-2">
             {query.isLoading ? (
               <span className="loading loading-spinner"></span>
@@ -130,11 +138,11 @@ export function AccountTokens({ address }: { address: PublicKey }) {
       </div>
       {query.isError && <pre className="alert alert-error">Error: {query.error?.message.toString()}</pre>}
       {query.isSuccess && (
-        <div>
+        <div className="overflow-x-auto">
           {query.data.length === 0 ? (
             <div>No token accounts found.</div>
           ) : (
-            <table className="table border-4 rounded-lg border-separate border-base-300">
+            <table className="table border-4 rounded-lg border-separate border-base-300 w-full">
               <thead>
                 <tr>
                   <th>Public Key</th>
@@ -198,7 +206,7 @@ export function AccountTransactions({ address }: { address: PublicKey }) {
   return (
     <div className="space-y-2">
       <div className="flex justify-between">
-        <h2 className="text-2xl font-bold">Transaction History</h2>
+        <h2 className="text-xl lg:text-2xl font-bold">Transaction History</h2>
         <div className="space-x-2">
           {query.isLoading ? (
             <span className="loading loading-spinner"></span>
@@ -211,11 +219,11 @@ export function AccountTransactions({ address }: { address: PublicKey }) {
       </div>
       {query.isError && <pre className="alert alert-error">Error: {query.error?.message.toString()}</pre>}
       {query.isSuccess && (
-        <div>
+        <div className="overflow-x-auto">
           {query.data.length === 0 ? (
             <div>No transactions found.</div>
           ) : (
-            <table className="table border-4 rounded-lg border-separate border-base-300">
+            <table className="table border-4 rounded-lg border-separate border-base-300 w-full">
               <thead>
                 <tr>
                   <th>Signature</th>
@@ -271,7 +279,7 @@ function ModalReceive({ hide, show, address }: { hide: () => void; show: boolean
   return (
     <AppModal title="Receive" hide={hide} show={show}>
       <p>Receive assets by sending them to your public key:</p>
-      <code>{address.toString()}</code>
+      <code className="break-all text-sm lg:text-base">{address.toString()}</code>
     </AppModal>
   )
 }
@@ -348,5 +356,19 @@ function ModalSend({ hide, show, address }: { hide: () => void; show: boolean; a
         onChange={(e) => setAmount(e.target.value)}
       />
     </AppModal>
+  )
+}
+
+export function AccountDetail({ address }: { address: PublicKey }) {
+  return (
+    <div className="space-y-4 lg:space-y-6 p-2 lg:p-0">
+      <AccountBalance address={address} />
+      <AccountButtons address={address} />
+      <div className="border-2 border-dashed border-base-300 p-2 lg:p-4">
+        <AccountLotteryPrizes address={address} />
+      </div>
+      <AccountTokens address={address} />
+      <AccountTransactions address={address} />
+    </div>
   )
 }

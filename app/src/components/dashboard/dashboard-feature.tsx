@@ -43,8 +43,9 @@ export default function DashboardFeature() {
   const [allLotteries, setAllLotteries] = useState<LotteryListItem[]>([])
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [newLotteryData, setNewLotteryData] = useState({
+    name: '',
     entryFee: '0.1',
-    duration: '3600' // 1 hour in seconds
+    duration: '3600'
   })
   const [selectedLotteryId, setSelectedLotteryId] = useState<string | null>(null)
 
@@ -261,13 +262,17 @@ export default function DashboardFeature() {
 
   const createLottery = async () => {
     if (!wallet.publicKey || !wallet.signTransaction) return
+    if (!newLotteryData.name.trim()) {
+      setError('Please enter a lottery name')
+      return
+    }
     
     try {
       setLoading(true)
       const program = await getProgram()
       
-      // Generate a unique lottery ID using timestamp
-      const lotteryId = `lottery_${Date.now()}`
+      // Use the name as the lottery ID
+      const lotteryId = newLotteryData.name.trim()
       
       // Convert entry fee to lamports
       const entryFee = new anchor.BN(
@@ -414,7 +419,11 @@ export default function DashboardFeature() {
                       >
                         <div className="space-y-3">
                           <div className="flex justify-between items-center">
-                            <span className="text-gray-500">Prize Pool:</span>
+                            <span className="text-gray-500">Name:</span>
+                            <span className="font-semibold text-gray-900">{lottery.account.lotteryId}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-gray-500 pr-4">Prize Pool:</span>
                             <span className="font-bold text-primary">
                               {prize.toFixed(3)} SOL
                             </span>
@@ -521,6 +530,13 @@ export default function DashboardFeature() {
                 <h2 className="text-xl font-bold">Create New Lottery</h2>
                 <button onClick={() => setShowCreateForm(false)} className="text-gray-400 hover:text-gray-500">×</button>
               </div>
+              <input
+                type="text"
+                value={newLotteryData.name}
+                onChange={(e) => setNewLotteryData(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="Lottery Name"
+                className="w-full p-2 border rounded"
+              />
               <input
                 type="number"
                 value={newLotteryData.entryFee}
