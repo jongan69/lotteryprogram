@@ -368,7 +368,7 @@ export default function DashboardFeature() {
           <div className="space-y-2">
             <p>Try your luck in our decentralized lottery system!</p>
             <p className="text-sm text-gray-600">
-              90% of the pool goes to the winner • 10% development fee
+              85% of the pool goes to the winner • 10% development fee • 5% goes to the creator!
             </p>
           </div>
         }
