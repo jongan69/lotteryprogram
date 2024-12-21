@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { AppHero } from '../ui/ui-layout'
-import { useConnection, useWallet } from '@solana/wallet-adapter-react'
-import { LAMPORTS_PER_SOL, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } from '@solana/web3.js'
+import { useConnection, useWallet, WalletContextState } from '@solana/wallet-adapter-react'
+import { Connection, LAMPORTS_PER_SOL, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } from '@solana/web3.js'
 import { Button } from '@/components/ui/button'
 import * as anchor from "@coral-xyz/anchor"
 
@@ -34,6 +34,27 @@ type LotteryProgram = anchor.Program<anchor.Idl> & {
   }
 }
 
+// Move getProgram outside the component or memoize it inside
+const getProgram = (connection: Connection, wallet: WalletContextState): Promise<LotteryProgram> => {
+  const provider = new anchor.AnchorProvider(
+    connection,
+    {
+      publicKey: wallet.publicKey!,
+      signTransaction: wallet.signTransaction!,
+      signAllTransactions: wallet.signAllTransactions!,
+    } as anchor.Wallet,
+    { commitment: 'confirmed' }
+  )
+  anchor.setProvider(provider)
+  
+  // Fetch IDL from chain
+  return anchor.Program.fetchIdl(PROGRAM_ID, provider)
+    .then(idl => {
+      if (!idl) throw new Error("IDL not found")
+      return new anchor.Program(idl, provider) as LotteryProgram
+    })
+}
+
 export default function DashboardFeature() {
   const { connection } = useConnection()
   const wallet = useWallet()
@@ -49,25 +70,11 @@ export default function DashboardFeature() {
   })
   const [selectedLotteryId, setSelectedLotteryId] = useState<string | null>(null)
 
-  // Get program and PDA
-  const getProgram = async () => {
-    const provider = new anchor.AnchorProvider(
-      connection,
-      {
-        publicKey: wallet.publicKey!,
-        signTransaction: wallet.signTransaction!,
-        signAllTransactions: wallet.signAllTransactions!,
-      } as anchor.Wallet,
-      { commitment: 'confirmed' }
-    )
-    anchor.setProvider(provider)
-    
-    // Fetch IDL from chain
-    const idl = await anchor.Program.fetchIdl(PROGRAM_ID, provider)
-    if (!idl) throw new Error("IDL not found")
-    
-    return new anchor.Program(idl, provider) as LotteryProgram
-  }
+  // Memoize the getProgram function
+  const memoizedGetProgram = useCallback(
+    () => getProgram(connection, wallet),
+    [connection, wallet]
+  )
 
   const getLotteryPDA = (lotteryId: string) => {
     const [lotteryPDA] = PublicKey.findProgramAddressSync(
@@ -78,12 +85,12 @@ export default function DashboardFeature() {
   }
 
   // Function to fetch lottery state
-  const fetchLotteryState = async () => {
+  const fetchLotteryState = useCallback(async () => {
     if (!wallet.publicKey || !selectedLotteryId) return
     
     try {
       setLoading(true)
-      const program = await getProgram()
+      const program = await memoizedGetProgram()
       const lotteryPDA = getLotteryPDA(selectedLotteryId)
       
       const account = await program.account.lotteryState.fetch(lotteryPDA)
@@ -94,7 +101,7 @@ export default function DashboardFeature() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [wallet.publicKey, selectedLotteryId, memoizedGetProgram])
 
   // Buy ticket function
   const buyTicket = async () => {
@@ -110,7 +117,7 @@ export default function DashboardFeature() {
       }
       
       setLoading(true)
-      const program = await getProgram()
+      const program = await memoizedGetProgram()
       const lotteryPDA = getLotteryPDA(selectedLotteryId)
 
       // Create transfer instruction for entry fee
@@ -168,7 +175,7 @@ export default function DashboardFeature() {
     
     try {
       setLoading(true)
-      const program = await getProgram()
+      const program = await memoizedGetProgram()
       const lotteryPDA = getLotteryPDA(selectedLotteryId)
 
       const ix = await program.methods
@@ -207,17 +214,16 @@ export default function DashboardFeature() {
     }
   }
 
-  const fetchAllLotteries = async () => {
+  // Update the fetchAllLotteries callback
+  const fetchAllLotteries = useCallback(async () => {
     if (!wallet.publicKey) return
     
     try {
       setLoading(true)
-      const program = await getProgram()
+      const program = await memoizedGetProgram()
       
-      // Fetch all lottery accounts
       const accounts = await program.account.lotteryState.all()
       
-      // Filter for active lotteries and format the data
       const activeLotteries = accounts
         .map(({ publicKey, account }: { publicKey: PublicKey; account: any }) => ({
           publicKey,
@@ -235,7 +241,7 @@ export default function DashboardFeature() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [wallet.publicKey, memoizedGetProgram])
 
   useEffect(() => {
     if (wallet.publicKey) {
@@ -248,13 +254,13 @@ export default function DashboardFeature() {
       const interval = setInterval(fetchData, 10000) // Use the same async function for interval
       return () => clearInterval(interval)
     }
-  }, [wallet.publicKey])
+  }, [wallet.publicKey, fetchAllLotteries])
 
   useEffect(() => {
     if (selectedLotteryId) {
       fetchLotteryState()
     }
-  }, [selectedLotteryId])
+  }, [selectedLotteryId, fetchLotteryState])
 
   const timeRemaining = lotteryState ? 
     new Date(lotteryState.endTime.toNumber() * 1000).getTime() - Date.now() : 0
@@ -269,7 +275,7 @@ export default function DashboardFeature() {
     
     try {
       setLoading(true)
-      const program = await getProgram()
+      const program = await memoizedGetProgram()
       
       // Use the name as the lottery ID
       const lotteryId = newLotteryData.name.trim()

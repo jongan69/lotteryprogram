@@ -3,7 +3,6 @@ import * as anchor from "@coral-xyz/anchor";
 import { Keypair, PublicKey, Connection, SystemProgram, Commitment } from "@solana/web3.js";
 import * as sb from "@switchboard-xyz/on-demand";
 import bs58 from "bs58";
-import * as IDL from "../../../../../target/types/lottery";
 
 const PROGRAM_ID = new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID!);
 const RPC_URL = process.env.RPC_URL!;
@@ -78,7 +77,7 @@ export async function POST(request: Request) {
     );
 
     // Fetch lottery state using the correct method
-    const lotteryState = await lotteryProgram.account.lotteryState.fetch(
+    const lotteryState = await (lotteryProgram.account as any).lottery.fetch(
       lotteryAccount
     ) as LotteryState;
 
