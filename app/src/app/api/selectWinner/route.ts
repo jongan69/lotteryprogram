@@ -190,7 +190,7 @@ export async function POST(request: Request) {
         await confirmTransaction(connection, revealSig);
 
         console.log("Winner selected successfully");
-        console.log("Available accounts:", Object.keys(lotteryProgram.account));
+        // console.log("Available accounts:", Object.keys(lotteryProgram.account));
         console.log("Lottery account address:", lotteryAccount.toString());
         return NextResponse.json({ success: true, transaction: revealSig });
     } catch (error: any) {

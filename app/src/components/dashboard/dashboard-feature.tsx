@@ -23,6 +23,11 @@ interface LotteryListItem {
   account: LotteryState
 }
 
+interface PastLottery extends LotteryListItem {
+  prizeAmount: number;
+  winnerAddress: string;
+}
+
 type LotteryProgram = anchor.Program<anchor.Idl> & {
   account: {
     lotteryState: {
@@ -67,6 +72,8 @@ export default function DashboardFeature() {
   })
   const [selectedLotteryId, setSelectedLotteryId] = useState<string | null>(null)
   const [PROGRAM_ID, setPROGRAM_ID] = useState<PublicKey | null>(null)
+  const [pastLotteries, setPastLotteries] = useState<PastLottery[]>([]);
+
   // Add this effect at the component level (inside DashboardFeature)
   useEffect(() => {
     const fetchProgramId = async () => {
@@ -356,6 +363,52 @@ export default function DashboardFeature() {
     return totalPool * 0.9 // 90% goes to winner
   }
 
+  const fetchPastLotteries = useCallback(async () => {
+    if (!PROGRAM_ID) return;
+
+    try {
+      setLoading(true);
+      const program = await memoizedGetProgram();
+
+      const accounts = await program.account.lotteryState.all();
+
+      const completedLotteries = accounts
+        .map(({ publicKey, account }: { publicKey: PublicKey; account: any }) => {
+          const lotteryState = account as LotteryState;
+          const prizeAmount = calculatePrize(
+            lotteryState.entryFee.toNumber(),
+            lotteryState.totalTickets
+          );
+          
+          return {
+            publicKey,
+            account: lotteryState,
+            prizeAmount,
+            winnerAddress: lotteryState.winner ? lotteryState.winner.toString() : ''
+          };
+        })
+        .filter((lottery: PastLottery) => {
+          const endTime = lottery.account.endTime.toNumber() * 1000;
+          return endTime <= Date.now() && lottery.account.winner;
+        })
+        .sort((a, b) => b.account.endTime.toNumber() - a.account.endTime.toNumber())
+        .slice(0, 10); // Show only last 10 completed lotteries
+
+      setPastLotteries(completedLotteries);
+    } catch (err) {
+      console.error('Failed to fetch past lotteries:', err);
+      setError('Failed to fetch past lotteries');
+    } finally {
+      setLoading(false);
+    }
+  }, [PROGRAM_ID, memoizedGetProgram]);
+
+  useEffect(() => {
+    if (!wallet.publicKey) {
+      fetchPastLotteries();
+    }
+  }, [wallet.publicKey, fetchPastLotteries]);
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
       <AppHero
@@ -377,12 +430,65 @@ export default function DashboardFeature() {
       )}
 
       {!wallet.publicKey ? (
-        <div className="max-w-2xl mx-auto text-center py-12">
-          <div className="bg-white rounded-xl shadow-md p-8">
+        <div className="max-w-6xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+          <div className="bg-white rounded-xl shadow-md p-8 mb-8">
             <h2 className="text-2xl font-bold mb-4">Connect Your Wallet</h2>
             <p className="text-gray-600 mb-4">
               Connect your Solana wallet to participate in lotteries or create your own!
             </p>
+          </div>
+
+          {/* Past Lotteries Section */}
+          <div className="bg-white rounded-xl shadow-md overflow-hidden">
+            <div className="p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">Recent Winners</h2>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Lottery Name
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Prize Amount
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Winner
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        End Date
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {pastLotteries.map((lottery) => (
+                      <tr key={lottery.publicKey.toString()}>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">
+                            {lottery.account.lotteryId}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900">
+                            {lottery.prizeAmount.toFixed(3)} SOL
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-500 font-mono">
+                            {`${lottery.winnerAddress.slice(0, 4)}...${lottery.winnerAddress.slice(-4)}`}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-500">
+                            {new Date(lottery.account.endTime.toNumber() * 1000).toLocaleDateString()}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
       ) : (

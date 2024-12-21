@@ -83,7 +83,7 @@ export async function POST(request: Request) {
         name,
         entryFeeLamports,
         endTime,
-        creator
+        new PublicKey(creator)
       )
       .accounts({
         lottery: lotteryPDA,

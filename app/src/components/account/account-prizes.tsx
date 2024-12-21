@@ -14,6 +14,16 @@ interface LotteryState {
   creator?: string;
 }
 
+const isValidPublicKey = (key: string | undefined): boolean => {
+  if (!key) return false;
+  try {
+    new PublicKey(key);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 export function AccountLotteryPrizes({ address }: { address: PublicKey }) {
   const wallet = useWallet()
 
@@ -111,6 +121,11 @@ export function AccountLotteryPrizes({ address }: { address: PublicKey }) {
       if (!wallet.publicKey || !wallet.signTransaction) {
         throw new Error('Wallet not connected');
       }
+      
+      if (!isValidPublicKey(creator.toString())) {
+        throw new Error('Invalid creator address');
+      }
+      
       setClaimingLotteryId(lotteryId);
       setError(null);
 
@@ -163,7 +178,7 @@ export function AccountLotteryPrizes({ address }: { address: PublicKey }) {
       await fetchLotteries();
     } catch (err) {
       console.error(`Error claiming prize for lottery ${lotteryId}:`, err);
-      setError('Failed to claim prize');
+      setError(err instanceof Error ? err.message : 'Failed to claim prize');
     } finally {
       setClaimingLotteryId(null);
     }
@@ -221,17 +236,24 @@ export function AccountLotteryPrizes({ address }: { address: PublicKey }) {
       <td className="whitespace-nowrap">
         {lottery.status === 'completed' && 
          lottery.winner === address.toString() ? (
-          <button
-            className="btn btn-xs btn-primary"
-            onClick={() => lottery.creator ? claimPrize(lottery.lotteryId, new PublicKey(lottery.creator)) : null}
-            disabled={claimingLotteryId === lottery.lotteryId || !lottery.creator}
-          >
-            {claimingLotteryId === lottery.lotteryId ? (
-              <span className="loading loading-spinner loading-xs"></span>
-            ) : (
-              'Claim'
-            )}
-          </button>
+          <div className="tooltip" data-tip={
+            !lottery.creator ? "Missing creator address" :
+            !isValidPublicKey(lottery.creator) ? "Invalid creator address" :
+            claimingLotteryId === lottery.lotteryId ? "Processing claim..." :
+            "Click to claim your prize"
+          }>
+            <button
+              className="btn btn-xs btn-primary"
+              onClick={() => lottery.creator ? claimPrize(lottery.lotteryId, new PublicKey(lottery.creator)) : null}
+              disabled={claimingLotteryId === lottery.lotteryId || !lottery.creator || !isValidPublicKey(lottery.creator)}
+            >
+              {claimingLotteryId === lottery.lotteryId ? (
+                <span className="loading loading-spinner loading-xs"></span>
+              ) : (
+                'Claim'
+              )}
+            </button>
+          </div>
         ) : (
           <span className={`badge truncate ${
             lottery.processing 
