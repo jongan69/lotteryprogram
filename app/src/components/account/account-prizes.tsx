@@ -89,8 +89,8 @@ export function AccountLotteryPrizes({ address }: { address: PublicKey }) {
       console.log(`Processing lottery: ${lotteryId}`);
       setProcessingLotteryId(lotteryId);
       setError(null);
-
-      const response = await fetch('/api/task', {
+  
+      const response = await fetch('/api/selectWinner', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -98,36 +98,15 @@ export function AccountLotteryPrizes({ address }: { address: PublicKey }) {
           params: { lotteryId },
         }),
       });
-
+  
       if (!response.ok) {
-        throw new Error('Failed to create task');
+        const errorResponse = await response.json();
+        console.error(`Failed to process lottery: ${lotteryId}`, errorResponse);
+        throw new Error(errorResponse.error || 'Failed to process lottery');
       }
-
-      const { taskId } = await response.json();
-      
-      const checkTaskStatus = async () => {
-        const statusResponse = await fetch(`/api/task?taskId=${taskId}`);
-        if (!statusResponse.ok) {
-          throw new Error('Failed to check task status');
-        }
-        
-        const { task } = await statusResponse.json();
-        if (task.status === 'completed') {
-          console.log(`Successfully processed lottery: ${lotteryId}`);
-          await fetchLotteries();
-          return true;
-        } else if (task.status === 'failed') {
-          throw new Error(task.result || 'Task failed');
-        }
-        return false;
-      };
-
-      for (let i = 0; i < 150; i++) {
-        const isComplete = await checkTaskStatus();
-        if (isComplete) break;
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
-
+  
+      console.log(`Successfully processed lottery: ${lotteryId}`);
+      await fetchLotteries();
     } catch (err) {
       console.error(`Error processing lottery ${lotteryId}:`, err);
       setError(`Failed to process lottery ${lotteryId}`);

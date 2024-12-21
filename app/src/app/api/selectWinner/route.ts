@@ -4,6 +4,8 @@ import { Keypair, PublicKey, Connection, SystemProgram, Commitment } from "@sola
 import * as sb from "@switchboard-xyz/on-demand";
 import bs58 from "bs58";
 
+export const maxDuration = 30;
+
 const PROGRAM_ID = new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID!);
 const RPC_URL = process.env.RPC_URL!;
 const ADMIN_KEY = process.env.ADMIN_KEY!;

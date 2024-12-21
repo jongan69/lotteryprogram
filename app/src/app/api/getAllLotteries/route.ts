@@ -55,7 +55,7 @@ export async function GET() {
         const lotteryAccounts = await program.account.lotteryState.all();
         console.log(`Total lotteries found: ${lotteryAccounts.length}`);
 
-        console.log(lotteryAccounts);
+        // console.log(lotteryAccounts);
         // Filter for processable lotteries
         const processableLotteries = lotteryAccounts.filter(({ account }) => {
             const hasEnded = account.endTime * 1000 < Date.now();
@@ -63,7 +63,7 @@ export async function GET() {
             return hasEnded && hasParticipants;
         });
 
-        console.log(`All lotteries found: ${lotteryAccounts.length}`);
+        // console.log(`All lotteries found: ${lotteryAccounts.length}`);
 
         // Return processable lotteries
         return NextResponse.json({

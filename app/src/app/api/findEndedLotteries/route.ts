@@ -65,7 +65,7 @@ export async function GET() {
             return hasEnded && hasNoWinner && hasParticipants && isAdmin;
         });
 
-        console.log(`Processable lotteries found: ${processableLotteries.length}`);
+        // console.log(`Processable lotteries found: ${processableLotteries.length}`);
 
         // Return processable lotteries
         return NextResponse.json({

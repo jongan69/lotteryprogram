@@ -34,6 +34,9 @@ export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
         const taskId = searchParams.get('taskId');
+        const debug = searchParams.get('debug');
+        const force = searchParams.get('force');
+        const reset = searchParams.get('reset');
 
         if (!taskId) {
             return NextResponse.json(
@@ -42,8 +45,22 @@ export async function GET(request: NextRequest) {
             );
         }
 
-        const task = await taskQueue.getStatus(taskId);
+        if (debug === 'true') {
+            const debugInfo = await taskQueue.debugTask(taskId);
+            return NextResponse.json(debugInfo);
+        }
 
+        if (force === 'true') {
+            await taskQueue.forceProcessTask(taskId);
+            return NextResponse.json({ message: "Task processing forced" });
+        }
+
+        if (reset === 'true') {
+            await taskQueue.resetTask(taskId);
+            return NextResponse.json({ message: "Task reset to pending" });
+        }
+
+        const task = await taskQueue.getStatus(taskId);
         if (!task) {
             return NextResponse.json(
                 { error: "Task not found" },
@@ -53,9 +70,9 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({ success: true, task });
     } catch (error) {
-        console.error("Error fetching task status:", error);
+        console.error("Error in task route:", error);
         return NextResponse.json(
-            { error: "Failed to fetch task status" },
+            { error: (error as Error).message },
             { status: 500 }
         );
     }
