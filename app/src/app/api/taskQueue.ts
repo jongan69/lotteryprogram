@@ -18,7 +18,14 @@ const txOpts = {
     maxRetries: 0,
 };
 
-const client = new MongoClient(MONGODB_URI);
+let clientPromise: Promise<MongoClient>;
+
+async function getMongoClient() {
+    if (!clientPromise) {
+        clientPromise = MongoClient.connect(MONGODB_URI);
+    }
+    return clientPromise;
+}
 
 async function confirmTransaction(connection: Connection, signature: string) {
     let attempts = 0;
@@ -175,8 +182,8 @@ async function processTask(task: Task) {
 }
 
 async function processQueue() {
+    const client = await getMongoClient();
     try {
-        await client.connect();
         const db = client.db("taskQueue");
         const tasks = db.collection("tasks");
 
@@ -209,8 +216,6 @@ async function processQueue() {
         }
     } catch (error: any) {
         console.error("Error processing queue:", error);
-    } finally {
-        await client.close();
     }
 }
 
@@ -226,36 +231,28 @@ export interface Task {
 
 export const taskQueue = {
     async enqueue(action: string, params: any): Promise<ObjectId> {
-        await client.connect();
-        try {
-            const db = client.db("taskQueue");
-            const tasks = db.collection<Task>("tasks");
+        const client = await getMongoClient();
+        const db = client.db("taskQueue");
+        const tasks = db.collection<Task>("tasks");
 
-            const task: Task = {
-                action,
-                params,
-                status: "pending",
-                result: null,
-                createdAt: new Date(),
-                updatedAt: new Date(),
-            };
+        const task: Task = {
+            action,
+            params,
+            status: "pending",
+            result: null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+        };
 
-            const result = await tasks.insertOne(task);
-            return result.insertedId;
-        } finally {
-            await client.close();
-        }
+        const result = await tasks.insertOne(task);
+        return result.insertedId;
     },
 
     async getStatus(taskId: string): Promise<Task | null> {
-        await client.connect();
-        try {
-            const db = client.db("taskQueue");
-            const tasks = db.collection<Task>("tasks");
-            return await tasks.findOne({ _id: new ObjectId(taskId) });
-        } finally {
-            await client.close();
-        }
+        const client = await getMongoClient();
+        const db = client.db("taskQueue");
+        const tasks = db.collection<Task>("tasks");
+        return await tasks.findOne({ _id: new ObjectId(taskId) });
     }
 };
 
