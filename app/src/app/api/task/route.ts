@@ -1,77 +1,61 @@
-import { MongoClient, ObjectId } from "mongodb";
-import { NextApiRequest, NextApiResponse } from "next";
-const MONGODB_URI = process.env.MONGODB_URI!;
-const client = new MongoClient(MONGODB_URI);
+import { NextRequest, NextResponse } from "next/server";
+import { taskQueue } from "../taskQueue";
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-    if (req.method === "POST") {
-        // Enqueue a new task
-        return enqueueTask(req, res);
-    } else if (req.method === "GET") {
-        // Check task status
-        return getTaskStatus(req, res);
-    } else {
-        res.setHeader("Allow", ["POST", "GET"]);
-        return res.status(405).json({ error: "Method not allowed" });
-    }
-}
-
-// Enqueue a new task
-async function enqueueTask(req: NextApiRequest, res: NextApiResponse) {
+// POST handler for enqueueing new tasks
+export async function POST(request: NextRequest) {
     try {
-        const { action, params } = req.body;
+        const body = await request.json();
+        const { action, params } = body;
 
         if (!action || !params) {
-            return res.status(400).json({ error: "Missing 'action' or 'params' in request body" });
+            return NextResponse.json(
+                { error: "Missing 'action' or 'params' in request body" },
+                { status: 400 }
+            );
         }
 
-        await client.connect();
-        const db = client.db("taskQueue");
-        const tasks = db.collection("tasks");
-
-        const task = {
-            action,
-            params,
-            status: "pending",
-            result: null,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-        };
-
-        const result = await tasks.insertOne(task);
-        res.status(201).json({ success: true, taskId: result.insertedId });
+        const taskId = await taskQueue.enqueue(action, params);
+        return NextResponse.json(
+            { success: true, taskId },
+            { status: 201 }
+        );
     } catch (error) {
         console.error("Error enqueueing task:", error);
-        res.status(500).json({ error: "Failed to enqueue task" });
-    } finally {
-        await client.close();
+        return NextResponse.json(
+            { error: "Failed to enqueue task" },
+            { status: 500 }
+        );
     }
 }
 
-// Get the status of a specific task
-async function getTaskStatus(req: NextApiRequest, res: NextApiResponse) {
+// GET handler for checking task status
+export async function GET(request: NextRequest) {
     try {
-        const taskId = Array.isArray(req.query.taskId) ? req.query.taskId[0] : req.query.taskId;
+        const { searchParams } = new URL(request.url);
+        const taskId = searchParams.get('taskId');
 
         if (!taskId) {
-            return res.status(400).json({ error: "Missing 'taskId' in query parameters" });
+            return NextResponse.json(
+                { error: "Missing 'taskId' in query parameters" },
+                { status: 400 }
+            );
         }
 
-        await client.connect();
-        const db = client.db("taskQueue");
-        const tasks = db.collection("tasks");
-
-        const task = await tasks.findOne({ _id: new ObjectId(taskId) });
+        const task = await taskQueue.getStatus(taskId);
 
         if (!task) {
-            return res.status(404).json({ error: "Task not found" });
+            return NextResponse.json(
+                { error: "Task not found" },
+                { status: 404 }
+            );
         }
 
-        res.status(200).json({ success: true, task });
+        return NextResponse.json({ success: true, task });
     } catch (error) {
         console.error("Error fetching task status:", error);
-        res.status(500).json({ error: "Failed to fetch task status" });
-    } finally {
-        await client.close();
+        return NextResponse.json(
+            { error: "Failed to fetch task status" },
+            { status: 500 }
+        );
     }
 }

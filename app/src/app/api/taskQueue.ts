@@ -59,11 +59,11 @@ async function setupQueue(program: anchor.Program<anchor.Idl>) {
     return queueAccount.pubkey;
 }
 
-async function processTask(task: { action: any; params: any; }) {
+async function processTask(task: Task) {
     const { action, params } = task;
 
     if (action !== "selectWinner") {
-        throw new Error("Unsupported task action");
+        throw new Error(`Unsupported task action: ${action}`);
     }
 
     const { lotteryId } = params;
@@ -93,22 +93,18 @@ async function processTask(task: { action: any; params: any; }) {
       };
     const provider = new anchor.AnchorProvider(connection, wallet, { commitment: COMMITMENT });
 
-    const idl = await anchor.Program.fetchIdl(PROGRAM_ID, provider);
-    if (!idl) throw new Error("IDL not found for program");
     let lotteryProgram: any;
     try {
         const idl = await anchor.Program.fetchIdl(PROGRAM_ID, provider);
         if (!idl) {
             throw new Error("IDL not found for program");
         }
-        lotteryProgram = new anchor.Program(
-            idl,
-            provider
-        );
+        lotteryProgram = new anchor.Program(idl, provider);
     } catch (error) {
         console.error("Error initializing lottery program:", error);
         throw error;
     }
+
     const [lotteryAccount] = PublicKey.findProgramAddressSync(
         [Buffer.from("lottery"), Buffer.from(lotteryId)],
         lotteryProgram.programId
@@ -170,7 +166,12 @@ async function processTask(task: { action: any; params: any; }) {
     await confirmTransaction(connection, revealSig);
 
     console.log(`Winner selected successfully for lottery ID ${lotteryId}`);
-    return revealSig;
+    return {
+        randomnessSig,
+        commitSig,
+        revealSig,
+        lotteryId
+    };
 }
 
 async function processQueue() {
@@ -212,5 +213,50 @@ async function processQueue() {
         await client.close();
     }
 }
+
+export interface Task {
+    _id?: ObjectId;
+    action: string;
+    params: any;
+    status: "pending" | "processing" | "completed" | "failed";
+    result: any;
+    createdAt: Date;
+    updatedAt: Date;
+}
+
+export const taskQueue = {
+    async enqueue(action: string, params: any): Promise<ObjectId> {
+        await client.connect();
+        try {
+            const db = client.db("taskQueue");
+            const tasks = db.collection<Task>("tasks");
+
+            const task: Task = {
+                action,
+                params,
+                status: "pending",
+                result: null,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            };
+
+            const result = await tasks.insertOne(task);
+            return result.insertedId;
+        } finally {
+            await client.close();
+        }
+    },
+
+    async getStatus(taskId: string): Promise<Task | null> {
+        await client.connect();
+        try {
+            const db = client.db("taskQueue");
+            const tasks = db.collection<Task>("tasks");
+            return await tasks.findOne({ _id: new ObjectId(taskId) });
+        } finally {
+            await client.close();
+        }
+    }
+};
 
 setInterval(processQueue, 5000);
