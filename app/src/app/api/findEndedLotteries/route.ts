@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import * as anchor from '@coral-xyz/anchor';
-import { Connection, Keypair, PublicKey } from '@solana/web3.js';
+import { Connection, Keypair } from '@solana/web3.js';
 import bs58 from 'bs58';
-import { LotteryStatus, LotteryProgram } from '@/types/lottery';
-import { getStatusString } from '@/lib/utils';
+import { LotteryProgram } from '@/types/lottery';
+import { getNumericStatus, getStatusString } from '@/lib/utils';
 import { PROGRAM_ID, RPC_URL, ADMIN_KEY } from '@/lib/constants';
 
 if (!PROGRAM_ID) {
@@ -47,21 +47,22 @@ export async function GET() {
 
         // Filter for processable lotteries
         const processableLotteries = lotteryAccounts.filter(({ account }) => {
+            const numericStatus = getNumericStatus(account.status);
             const hasEnded = account.endTime * 1000 < Date.now();
             const hasParticipants = account.participants && account.participants.length > 0;
             const isAdmin = account.admin.toString() === adminKeypair.publicKey.toString();
-            const isProcessable = account.status === LotteryStatus.Active || 
-                                account.status === LotteryStatus.EndedWaitingForWinner;
+            const isProcessable = numericStatus === 1;
             return hasEnded && hasParticipants && isAdmin && isProcessable;
         });
 
-        console.log(`Processable lotteries found: ${processableLotteries.length}`);
+        console.log(`Processable lotteries found: ${processableLotteries.length} for program ${PROGRAM_ID}`);
         // console.log('Processable lotteries:', processableLotteries);
         // Return processable lotteries
         return NextResponse.json({
             lotteries: processableLotteries.map(({ account }) => ({
                 lotteryId: account.lotteryId,
-                status: getStatusString(account.status),
+                statusDisplay: getStatusString(account.status),
+                status: getNumericStatus(account.status),
                 participants: account.participants,
                 winner: account.winner || null,
             })),

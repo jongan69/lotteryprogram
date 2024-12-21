@@ -5,19 +5,19 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
 import { useInterval } from 'react-use';
 import * as anchor from '@coral-xyz/anchor';
-import { LotteryState } from '@/types/lottery';
-import { isValidPublicKey, getStatusString } from '@/lib/utils';
+import { Lottery } from '@/types/lottery';
+import { isValidPublicKey } from '@/lib/utils';
 import { useTransactionToast } from '../ui/ui-layout';
 
 export function AccountLotteryPrizes() {
   const wallet = useWallet()
   const { connection } = useConnection()
-  const [lotteries, setLotteries] = useState<LotteryState[]>([]);
+  const [lotteries, setLotteries] = useState<Lottery[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingLotteryId, setProcessingLotteryId] = useState<string | null>(null);
   const [claimingLotteryId, setClaimingLotteryId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [allLotteries, setAllLotteries] = useState<LotteryState[]>([]);
+  const [allLotteries, setAllLotteries] = useState<Lottery[]>([]);
   const [tableLoading, setTableLoading] = useState(true);
   const POLL_INTERVAL = 100000; // 100 seconds
   const transactionToast = useTransactionToast()
@@ -201,7 +201,7 @@ export function AccountLotteryPrizes() {
 
       const data = await response.json();
       const pendingLotteries = data.lotteries?.filter(
-        (lottery: LotteryState) => lottery.status === 1
+        (lottery: Lottery) => lottery.status === 1
       );
 
       for (const lottery of pendingLotteries) {
@@ -218,7 +218,7 @@ export function AccountLotteryPrizes() {
     }
   }, POLL_INTERVAL);
 
-  const renderTableRow = (lottery: LotteryState) => {
+  const renderTableRow = (lottery: Lottery) => {
     console.log('Rendering lottery row:', {
       lotteryId: lottery.lotteryId,
       status: lottery.status,
@@ -288,15 +288,18 @@ export function AccountLotteryPrizes() {
               </button>
             </div>
           ) : (
-            <span className={`badge ${getStatusString(lottery.status) === 'finalized'
+            <span className={`badge ${lottery.status === 3
                 ? 'badge-neutral'
-                : getStatusString(lottery.status) === 'completed'
+                : lottery.status === 2
                   ? 'badge-success'
-                  : getStatusString(lottery.status) === 'pending'
+                  : lottery.status === 1
                     ? 'badge-warning'
                     : 'badge-info'
               }`}>
-              {getStatusString(lottery.status)}
+              {lottery.status === 3 ? 'finalized' 
+                : lottery.status === 2 ? 'completed'
+                : lottery.status === 1 ? 'pending'
+                : 'unknown'}
             </span>
           )}
         </td>

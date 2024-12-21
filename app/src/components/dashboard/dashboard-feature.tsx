@@ -5,14 +5,14 @@ import { AppHero } from '../ui/ui-layout'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { LAMPORTS_PER_SOL, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } from '@solana/web3.js'
 import { Button } from '@/components/ui/button'
-import { LotteryState, LotteryListItem, PastLottery } from '@/types/lottery'
+import { Lottery, LotteryListItem, PastLottery } from '@/types/lottery'
 import { getProgram } from '@/lib/getProgram'
 
 
 export default function DashboardFeature() {
   const { connection } = useConnection()
   const wallet = useWallet()
-  const [lotteryState, setLotteryState] = useState<LotteryState | null>(null)
+  const [lotteryState, setLotteryState] = useState<Lottery | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [allLotteries, setAllLotteries] = useState<LotteryListItem[]>([])
@@ -72,7 +72,7 @@ export default function DashboardFeature() {
       const lotteryPDA = getLotteryPDA(selectedLotteryId);
 
       const account = await program.account.lotteryState.fetch(lotteryPDA);
-      setLotteryState(account as LotteryState);
+      setLotteryState(account as Lottery);
     } catch (err) {
       console.error('Failed to fetch lottery state:', err);
       setError('Failed to fetch lottery state');
@@ -160,7 +160,7 @@ export default function DashboardFeature() {
       const activeLotteries = accounts
         .map(({ publicKey, account }: { publicKey: PublicKey; account: any }) => ({
           publicKey,
-          account: account as LotteryState
+          account: account as Lottery
         }))
         .filter((lottery: LotteryListItem) => {
           const endTime = lottery.account.endTime.toNumber() * 1000
@@ -277,7 +277,7 @@ export default function DashboardFeature() {
 
       const completedLotteries = accounts
         .map(({ publicKey, account }: { publicKey: PublicKey; account: any }) => {
-          const lotteryState = account as LotteryState;
+          const lotteryState = account as Lottery;
           const prizeAmount = calculatePrize(
             lotteryState.entryFee.toNumber(),
             lotteryState.totalTickets

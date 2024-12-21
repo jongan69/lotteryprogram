@@ -1,40 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import * as anchor from "@coral-xyz/anchor";
 
-export interface LotteryState {
-    lotteryId: string
-    admin: PublicKey
-    creator: PublicKey
-    entryFee: anchor.BN
-    totalTickets: number
-    participants: PublicKey[]
-    endTime: anchor.BN
-    winner: PublicKey | null
-    status: number
-    totalPrize: anchor.BN
-  }
-
-  
-//   interface LotteryState {
-//     lotteryId: string;
-//     status: 'pending' | 'completed' | 'finalized';
-//     processing?: boolean;
-//     participants?: number;
-//     winner?: string;
-//     prizeAmount?: number;
-//     creator?: string;
-//   }
-
-  export interface LotteryListItem {
-    publicKey: PublicKey
-    account: LotteryState
-  }
-  
-  export interface PastLottery extends LotteryListItem {
-    prizeAmount: number;
-    winnerAddress: string;
-  }
-
 export enum LotteryStatus {
     Active = 0,
     EndedWaitingForWinner = 1,
@@ -42,6 +8,30 @@ export enum LotteryStatus {
     Completed = 3
 }
 
+export interface Lottery {
+    lotteryId: string;
+    admin: PublicKey;
+    creator: PublicKey;
+    entryFee: anchor.BN;
+    totalTickets: number;
+    participants: PublicKey[];
+    endTime: anchor.BN;
+    winner: PublicKey | null;
+    randomnessAccount: PublicKey | null;
+    index: number;
+    status: LotteryStatus;
+    totalPrize: anchor.BN;
+}
+
+export interface LotteryListItem {
+    publicKey: PublicKey
+    account: Lottery
+}
+
+export interface PastLottery extends LotteryListItem {
+    prizeAmount: number;
+    winnerAddress: string;
+}
 
 export type LotteryProgram = anchor.Program<anchor.Idl> & {
     account: {

@@ -5,7 +5,7 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-lottery = "Dz3Gwj8tVuuR5Aee9MoBj1d5ENk23FhSjimhH6yoXXTD"
+lottery = "7weB1FgasHTq8FH5Yyz9RsiAyQTT2J5kUeDHLyqX3VV9"
 
 [registry]
 url = "https://api.apr.dev"

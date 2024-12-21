@@ -1,6 +1,8 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Keypair, PublicKey, SystemProgram, Commitment, Connection } from "@solana/web3.js";
 import * as sb from "@switchboard-xyz/on-demand";
+import { assert } from "chai";
+import { LotteryStatus } from "../app/src/types/lottery";
 
 // Constants for identifying accounts
 const myProgramPath = "./target/deploy/lottery-keypair.json"; // Path to the lottery program keypair
@@ -13,12 +15,15 @@ interface LotteryState {
   lotteryId: string;
   admin: PublicKey;
   creator: PublicKey;
-  entryFee: number;
-  endTime: number;
+  entryFee: anchor.BN;
   totalTickets: number;
   participants: PublicKey[];
+  endTime: anchor.BN;
   winner: PublicKey | null;
-  // Add other fields from your Rust struct
+  randomnessAccount: PublicKey | null;
+  index: number;
+  status: LotteryStatus;
+  totalPrize: anchor.BN;
 }
 
 // helper functions
@@ -169,6 +174,24 @@ async function claimPrizeInstruction(
       systemProgram: SystemProgram.programId,
     })
     .instruction();
+}
+
+// Add helper function to get numeric status
+function getNumericStatus(status: any): number {
+  if (typeof status === 'number') {
+    return status;
+  }
+  // Handle object case
+  if (status.active !== undefined) return 0;
+  if (status.endedWaitingForWinner !== undefined) return 1;
+  if (status.winnerSelected !== undefined) return 2;
+  if (status.completed !== undefined) return 3;
+  // If it's a raw number-like value, convert it
+  if (status.toString) {
+    const num = Number(status.toString());
+    if (!isNaN(num)) return num;
+  }
+  return -1; // Invalid status
 }
 
 describe("Lottery", () => {
@@ -476,6 +499,18 @@ describe("Lottery", () => {
         throw error;
       }
 
+      // Add these checks after initializing the lottery
+      let lotteryState: LotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
+      console.log("\nVerifying initial lottery status...");
+      console.log("Initial status (raw):", lotteryState.status);
+      const numericStatus = getNumericStatus(lotteryState.status);
+      console.log("Initial status (numeric):", numericStatus);
+      assert.equal(
+        numericStatus,
+        LotteryStatus.Active,
+        "Initial status should be Active"
+      );
+
       // Step 5: Set up multiple players and ticket purchases
       console.log("\nStep 3: Setting up multiple ticket purchases...");
 
@@ -539,7 +574,7 @@ describe("Lottery", () => {
       }
 
       // Log total participants
-      const lotteryState: LotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
+      lotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
       console.log(`\nLottery Status:`);
       console.log(`Total tickets purchased: ${lotteryState.totalTickets}`);
       console.log(`Total participants for lottery ID ${lotteryState.lotteryId}: ${lotteryState.participants.length}`);
@@ -560,6 +595,43 @@ describe("Lottery", () => {
       console.log("\nWaiting for lottery to end...");
       await sleep(6000); // Wait 6 seconds
       console.log("Lottery end time reached");
+
+      // Add these checks after waiting for lottery to end
+      console.log("\nVerifying lottery status after end time...");
+      await sleep(6000); // Wait 6 seconds
+      console.log("Lottery end time reached");
+
+      // Update lottery status
+      const updateStatusIx = await lotteryProgram.methods
+        .updateLotteryStatus("lottery_1")
+        .accounts({
+          lottery: lotteryAccount,
+          systemProgram: SystemProgram.programId,
+        })
+        .instruction();
+
+      const updateStatusTx = await sb.asV0Tx({
+        connection: sbProgram.provider.connection,
+        ixs: [updateStatusIx],
+        payer: keypair.publicKey,
+        signers: [keypair],
+        computeUnitPrice: computeUnitPrice,
+        computeUnitLimitMultiple: computeUnitLimitMultiple,
+      });
+
+      const updateSig = await connection.sendTransaction(updateStatusTx, txOpts);
+      await confirmTx(connection, updateSig);
+
+      // Fetch the latest state after updating status
+      lotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
+
+      // Verify status was updated
+      console.log("Status after end time:", lotteryState.status);
+      assert.equal(
+        getNumericStatus(lotteryState.status),
+        LotteryStatus.EndedWaitingForWinner,
+        "Status should be EndedWaitingForWinner"
+      );
 
       // Step 6: Select a winner using randomness
       console.log("\nStep 4: Selecting winner...");
@@ -663,7 +735,7 @@ describe("Lottery", () => {
 
         // Add verification of winner selection
         try {
-          const lotteryState: LotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
+          lotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
           if (lotteryState.winner) {
             console.log("Verified winner selected:", lotteryState.winner.toString());
           } else {
@@ -676,14 +748,14 @@ describe("Lottery", () => {
         }
 
         // After winner selection
-        const lotteryState: LotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
+        lotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
         if (!lotteryState.winner) {
           throw new Error("No winner was selected");
         }
 
         // Find the winning keypair
         let winningKeypair: Keypair;
-        const winningPubkey = new PublicKey(lotteryState.winner.toString());
+        let winningPubkey = new PublicKey(lotteryState.winner.toString());
 
         if (winningPubkey.equals(keypair.publicKey)) {
           winningKeypair = keypair;
@@ -720,7 +792,7 @@ describe("Lottery", () => {
           const sig4 = await connection.sendTransaction(claimPrizeTx, txOpts);
           await confirmTx(connection, sig4);
           console.log("Prize claimed successfully! Tx:", sig4);
-          
+
           // Log final balances
           await logBalances(
             connection,
@@ -731,6 +803,18 @@ describe("Lottery", () => {
               { name: "Participant 1", pubkey: participant1.publicKey },
               { name: "Participant 2", pubkey: participant2.publicKey }
             ]
+          );
+
+          // Fetch latest state after claiming prize
+          lotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
+
+          // Add these checks after claiming prize
+          console.log("\nVerifying final lottery status...");
+          console.log("Final status:", lotteryState.status);
+          assert.equal(
+            getNumericStatus(lotteryState.status),
+            LotteryStatus.Completed,
+            "Final status should be Completed"
           );
         } catch (error) {
           console.error("Failed to claim prize:", error);

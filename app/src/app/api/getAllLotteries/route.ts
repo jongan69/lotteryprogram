@@ -3,7 +3,7 @@ import * as anchor from '@coral-xyz/anchor';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import bs58 from 'bs58';
 import { LotteryProgram } from '@/types/lottery';
-import { getStatusString } from '@/lib/utils';
+import { getNumericStatus, getStatusString } from '@/lib/utils';
 
 const PROGRAM_ID = process.env.NEXT_PUBLIC_PROGRAM_ID
     ? new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID)
@@ -46,9 +46,9 @@ export async function GET() {
         // Fetch all lottery accounts
         console.log('Fetching all lottery accounts...');
         const lotteryAccounts = await program.account.lotteryState.all();
-        console.log(`Total lotteries found: ${lotteryAccounts.length}`);
+        console.log(`Total lotteries found: ${lotteryAccounts.length} for program ${PROGRAM_ID}`);
 
-        // console.log(lotteryAccounts);
+        console.log(lotteryAccounts);
         // Filter for processable lotteries
         const processableLotteries = lotteryAccounts.filter(({ account }) => {
             const hasEnded = account.endTime * 1000 < Date.now();
@@ -61,11 +61,13 @@ export async function GET() {
         // for (const lottery of processableLotteries) {
         //     console.log(lottery.account.status);
         // }
+
         // Return processable lotteries
         return NextResponse.json({
             lotteries: processableLotteries.map(({ account }) => ({
                 lotteryId: account.lotteryId,
-                status: getStatusString(account.status),
+                statusDisplay: getStatusString(account.status),
+                status: getNumericStatus(account.status),
                 admin: account.admin.toString(),
                 creator: account.creator.toString(),
                 participants: account.participants,

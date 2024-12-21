@@ -2035,6 +2035,7 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "bytemuck",
+ "serde",
  "solana-program 2.1.6",
  "switchboard-on-demand",
 ]

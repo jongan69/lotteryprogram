@@ -1,8 +1,9 @@
 use anchor_lang::prelude::*;
 use switchboard_on_demand::accounts::RandomnessAccountData;
 use anchor_lang::system_program;
+use serde::{Deserialize, Serialize};
 
-declare_id!("Dz3Gwj8tVuuR5Aee9MoBj1d5ENk23FhSjimhH6yoXXTD");
+declare_id!("7weB1FgasHTq8FH5Yyz9RsiAyQTT2J5kUeDHLyqX3VV9");
 
 pub const LOTTERY_SEED: &[u8] = b"lottery";
 pub const MAX_PARTICIPANTS: u32 = 100;
@@ -27,6 +28,7 @@ pub mod lottery {
         lottery.status = LotteryStatus::Active;
         lottery.total_prize = 0;
         msg!("Lottery {} Initialized!", lottery.lottery_id);
+        msg!("Setting initial status to: {:?}", lottery.status);
         Ok(())
     }
 
@@ -82,13 +84,13 @@ pub mod lottery {
         
         // Store the player's index using the lottery's current index
         let lottery = &mut ctx.accounts.lottery;
-        lottery.participants.push(ctx.accounts.player.key()); // Use a vector for fixed participants
-
-        // Increment ticket count and index for next participant
-        lottery.total_tickets += 1;
+        lottery.participants.push(ctx.accounts.player.key()); // Add participant
+        lottery.total_tickets += 1;  // Increment total tickets
         lottery.index += 1;
 
         msg!("Ticket purchased by: {:?}", ctx.accounts.player.key());
+        msg!("Total tickets now: {}", lottery.total_tickets);
+        msg!("Total participants now: {}", lottery.participants.len());
         Ok(())
     }
 
@@ -129,6 +131,9 @@ pub mod lottery {
             lottery.total_tickets > 0 && !lottery.participants.is_empty(),
             LotteryError::NoParticipants
         );
+
+        // Store randomness account
+        lottery.randomness_account = Some(ctx.accounts.randomness_account_data.key());
 
         // 4. Get randomness
         msg!("Attempting to parse randomness data...");
@@ -270,14 +275,16 @@ pub mod lottery {
         );
 
         let current_time = Clock::get().unwrap().unix_timestamp;
+        msg!("Current status: {:?}", lottery.status);
+        msg!("Current time: {}, End time: {}", current_time, lottery.end_time);
         
         match lottery.status {
             LotteryStatus::Active if current_time > lottery.end_time => {
                 lottery.status = LotteryStatus::EndedWaitingForWinner;
-                msg!("Lottery status updated to EndedWaitingForWinner");
+                msg!("Lottery status updated to EndedWaitingForWinner ({})", lottery.status as u8);
             },
             _ => {
-                msg!("No status update needed");
+                msg!("No status update needed. Current status: {:?} ({})", lottery.status, lottery.status as u8);
             }
         }
 
@@ -287,6 +294,7 @@ pub mod lottery {
 
 // === LotteryState Struct Definition ===
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Debug)]
+#[repr(u8)]
 pub enum LotteryStatus {
     Active = 0,
     EndedWaitingForWinner = 1,
@@ -294,7 +302,56 @@ pub enum LotteryStatus {
     Completed = 3,
 }
 
+impl Serialize for LotteryStatus {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_u8(*self as u8)
+    }
+}
+
+impl<'de> Deserialize<'de> for LotteryStatus {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = <u8 as serde::Deserialize>::deserialize(deserializer)?;
+        match value {
+            0 => Ok(LotteryStatus::Active),
+            1 => Ok(LotteryStatus::EndedWaitingForWinner),
+            2 => Ok(LotteryStatus::WinnerSelected),
+            3 => Ok(LotteryStatus::Completed),
+            _ => Err(serde::de::Error::custom("Invalid status value")),
+        }
+    }
+}
+
+impl std::fmt::Display for LotteryStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LotteryStatus::Active => write!(f, "Active"),
+            LotteryStatus::EndedWaitingForWinner => write!(f, "EndedWaitingForWinner"),
+            LotteryStatus::WinnerSelected => write!(f, "WinnerSelected"),
+            LotteryStatus::Completed => write!(f, "Completed"),
+        }
+    }
+}
+
+impl Default for LotteryStatus {
+    fn default() -> Self {
+        LotteryStatus::Active
+    }
+}
+
+impl From<LotteryStatus> for u8 {
+    fn from(status: LotteryStatus) -> Self {
+        status as u8
+    }
+}
+
 #[account]
+#[derive(Default)]
 pub struct LotteryState {
     pub lottery_id: String,
     pub admin: Pubkey,
