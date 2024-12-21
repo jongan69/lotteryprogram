@@ -92,6 +92,7 @@ export default function DashboardFeature() {
   }, [])
 
   // Memoize the getProgram function
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const memoizedGetProgram = useCallback(
     () => {
       if (!PROGRAM_ID) throw new Error("Program ID not initialized");
@@ -99,7 +100,7 @@ export default function DashboardFeature() {
     },
     [connection, wallet, PROGRAM_ID]
   );
-
+  
   const getLotteryPDA = (lotteryId: string) => {
     if (!PROGRAM_ID) throw new Error("Program ID not initialized")
     const [lotteryPDA] = PublicKey.findProgramAddressSync(
