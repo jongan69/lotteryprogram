@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import * as anchor from '@coral-xyz/anchor';
-import { Keypair, PublicKey } from '@solana/web3.js';
+import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import * as sb from '@switchboard-xyz/on-demand';
 import bs58 from 'bs58';
 
@@ -33,15 +33,23 @@ export async function GET() {
 
         // Load admin keypair
         const adminKeypair = Keypair.fromSecretKey(bs58.decode(process.env.ADMIN_KEY));
+        const connection = new Connection(process.env.RPC_URL!);
 
-        // Setup connection and provider
-        const { program: sbProgram } = await sb.AnchorUtils.loadEnv();
-        if (!sbProgram) throw new Error('Failed to load Switchboard program');
+        // Create a wallet adapter from the keypair
+        const wallet = {
+            publicKey: adminKeypair.publicKey,
+            signTransaction: (tx: any) => Promise.resolve(tx.sign([adminKeypair])),
+            signAllTransactions: (txs: any[]) => Promise.all(txs.map(tx => tx.sign([adminKeypair]))),
+        };
+
+        const provider = new anchor.AnchorProvider(connection, wallet, {
+            commitment: 'confirmed'
+        });
 
         // Load lottery program
-        const idl = await anchor.Program.fetchIdl(PROGRAM_ID!, sbProgram.provider);
+        const idl = await anchor.Program.fetchIdl(PROGRAM_ID!, provider);
         if (!idl) throw new Error('IDL not found for the lottery program.');
-        const program = new anchor.Program(idl, sbProgram.provider) as LotteryProgram;
+        const program = new anchor.Program(idl, provider) as LotteryProgram;
 
         // Fetch all lottery accounts
         console.log('Fetching all lottery accounts...');
