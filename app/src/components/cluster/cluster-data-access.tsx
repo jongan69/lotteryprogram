@@ -16,7 +16,6 @@ export interface Cluster {
 export enum ClusterNetwork {
   Mainnet = 'mainnet-beta',
   Devnet = 'devnet',
-  Custom = 'custom',
 }
 
 // By default, we don't configure the mainnet-beta cluster
@@ -28,7 +27,11 @@ export const defaultClusters: Cluster[] = [
     endpoint: clusterApiUrl('devnet'),
     network: ClusterNetwork.Devnet,
   },
-  { name: 'local', endpoint: 'http://localhost:8899' }
+  {
+    name: 'mainnet',
+    endpoint: 'https://christiane-z5lsaw-fast-mainnet.helius-rpc.com',
+    network: ClusterNetwork.Mainnet,
+  }
 ]
 
 const clusterAtom = atomWithStorage<Cluster>('solana-cluster', defaultClusters[0])

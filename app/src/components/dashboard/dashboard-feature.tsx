@@ -264,7 +264,7 @@ export default function DashboardFeature() {
     return totalPool * 0.9 // 90% goes to winner
   }
 
-  // Update fetchPastLotteries to not check for wallet
+  // Update fetchPastLotteries callback
   const fetchPastLotteries = useCallback(async () => {
     if (!PROGRAM_ID) return;
 
@@ -273,7 +273,6 @@ export default function DashboardFeature() {
       const program = await memoizedGetProgram();
 
       const accounts = await program.account.lotteryState.all();
-      console.log('All lottery accounts:', accounts);
 
       const completedLotteries = accounts
         .map(({ publicKey, account }: { publicKey: PublicKey; account: any }) => {
@@ -289,35 +288,19 @@ export default function DashboardFeature() {
             prizeAmount,
             winnerAddress: lotteryState.winner ? lotteryState.winner.toString() : ''
           };
-        });
-
-      console.log('Mapped lotteries:', completedLotteries);
-
-      const filteredLotteries = completedLotteries
+        })
         .filter((lottery: PastLottery) => {
           const endTime = lottery.account.endTime.toNumber() * 1000;
           const hasEnded = endTime <= Date.now();
-          const isCompleted = lottery.account.status === 3;
-          const hasWinnerSelected = lottery.account.status === 2;
+          // Consider a lottery completed if it has a winner
+          const isCompleted = lottery.account.winner !== null;
 
-          console.log('Lottery:', {
-            id: lottery.account.lotteryId,
-            endTime: new Date(endTime),
-            hasEnded,
-            isCompleted,
-            hasWinnerSelected,
-            status: lottery.account.status,
-            winner: lottery.account.winner?.toString()
-          });
-
-          return hasEnded && (isCompleted || hasWinnerSelected);
+          return hasEnded && isCompleted;
         })
         .sort((a, b) => b.account.endTime.toNumber() - a.account.endTime.toNumber())
         .slice(0, 10);
 
-      console.log('Final filtered lotteries:', filteredLotteries);
-
-      setPastLotteries(filteredLotteries);
+      setPastLotteries(completedLotteries);
     } catch (err) {
       console.error('Failed to fetch past lotteries:', err);
       setError('Failed to fetch past lotteries');
@@ -412,14 +395,14 @@ export default function DashboardFeature() {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm text-gray-500 font-mono">
-                              {lottery.winnerAddress
-                                ? `${lottery.winnerAddress.slice(0, 4)}...${lottery.winnerAddress.slice(-4)}`
-                                : 'No Winner'}
+                              {lottery.account.winner
+                                ? `${lottery.account.winner.toString().slice(0, 4)}...${lottery.account.winner.toString().slice(-4)}`
+                                : 'Pending'}
                             </div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm text-gray-500">
-                              {new Date(lottery.account.endTime.toNumber() * 1000).toLocaleDateString()}
+                              {new Date(lottery.account.endTime.toNumber() * 1000).toLocaleString()}
                             </div>
                           </td>
                         </tr>

@@ -212,6 +212,38 @@ export function AccountLotteryPrizes() {
     }
   };
 
+  const processAllPendingLotteries = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const pendingLotteries = allLotteries.filter(
+        lottery => lottery.status === 1
+      );
+
+      if (pendingLotteries.length === 0) {
+        setError('No pending lotteries to process');
+        return;
+      }
+
+      for (const lottery of pendingLotteries) {
+        await processLottery(lottery.lotteryId);
+      }
+
+      // Refresh the lottery lists
+      await Promise.all([
+        fetchLotteries(),
+        fetchAllLotteries()
+      ]);
+
+    } catch (err) {
+      console.error('Error processing pending lotteries:', err);
+      setError('Failed to process pending lotteries');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useInterval(() => {
     if (wallet.publicKey) {
       checkAndProcessPendingLotteries();
@@ -245,12 +277,14 @@ export function AccountLotteryPrizes() {
           {`${prizeAmountSol} SOL`}
         </td>
         <td className="whitespace-nowrap max-w-[8rem] truncate hidden md:table-cell font-mono">
-          {lottery.winner
-            ? `${lottery.winner.toString().slice(0, 4)}...${lottery.winner.toString().slice(-4)}`
-            : 'Pending'}
+          {lottery.creator
+            ? `${lottery.creator.toString().slice(0, 4)}...${lottery.creator.toString().slice(-4)}`
+            : ''}
         </td>
-        <td className="whitespace-nowrap hidden md:table-cell">
-          {lottery.creator ? lottery.creator.toString() : ''}
+        <td className="whitespace-nowrap hidden md:table-cell font-mono">
+          {lottery.winner
+            ? lottery.winner.toString()
+            : 'Pending'}
         </td>
         <td className="whitespace-nowrap">
           {lottery.status === 2 &&
@@ -329,6 +363,19 @@ export function AccountLotteryPrizes() {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold">Lottery Prizes</h2>
+        {allLotteries.some(lottery => lottery.status === 1) && (
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={processAllPendingLotteries}
+            disabled={loading || !!processingLotteryId}
+          >
+            {loading || processingLotteryId ? (
+              <span className="loading loading-spinner loading-xs"></span>
+            ) : (
+              'Process Pending Lotteries'
+            )}
+          </button>
+        )}
       </div>
 
       {error && <div className="alert alert-error">{error}</div>}
@@ -348,8 +395,8 @@ export function AccountLotteryPrizes() {
                     <th className="whitespace-nowrap">Lottery ID</th>
                     <th className="whitespace-nowrap">Players</th>
                     <th className="whitespace-nowrap">Prize</th>
-                    <th className="whitespace-nowrap hidden md:table-cell">Winner</th>
                     <th className="whitespace-nowrap hidden md:table-cell">Creator</th>
+                    <th className="whitespace-nowrap hidden md:table-cell">Winner</th>
                     <th className="whitespace-nowrap">Status</th>
                   </tr>
                 </thead>

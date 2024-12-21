@@ -203,3 +203,18 @@ Note: Always ensure you're on devnet and have sufficient SOL before running test
   - Does not touch Anchor-specific files
 
 Use `anchor clean` when you need a complete reset of your program's build state, especially after structural changes. Use `cargo clean` when you only need to rebuild the Rust code.
+
+#### RPC Config
+
+```bash
+solana config set --url devnet
+```
+```bash
+solana config set --url devnet
+```
+
+RPC Providers:
+- https://shyft.to
+- https://quicknode.com/
+- https://helius.dev/
+
