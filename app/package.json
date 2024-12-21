@@ -20,6 +20,7 @@
     "@solana/wallet-adapter-react-ui": "^0.9.35",
     "@solana/wallet-adapter-wallets": "^0.19.32",
     "@solana/web3.js": "^1.95.1",
+    "@switchboard-xyz/on-demand": "^1.2.54",
     "@tabler/icons-react": "^3.11.0",
     "@tanstack/react-query": "^5.51.11",
     "@tanstack/react-query-next-experimental": "^5.51.11",
