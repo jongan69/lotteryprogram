@@ -89,8 +89,8 @@ export function AccountLotteryPrizes({ address }: { address: PublicKey }) {
       console.log(`Processing lottery: ${lotteryId}`);
       setProcessingLotteryId(lotteryId);
       setError(null);
-  
-      const response = await fetch('/api/selectWinner', {
+
+      const response = await fetch('/api/task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -98,15 +98,36 @@ export function AccountLotteryPrizes({ address }: { address: PublicKey }) {
           params: { lotteryId },
         }),
       });
-  
+
       if (!response.ok) {
-        const errorResponse = await response.json();
-        console.error(`Failed to process lottery: ${lotteryId}`, errorResponse);
-        throw new Error(errorResponse.error || 'Failed to process lottery');
+        throw new Error('Failed to create task');
       }
-  
-      console.log(`Successfully processed lottery: ${lotteryId}`);
-      await fetchLotteries();
+
+      const { taskId } = await response.json();
+      
+      const checkTaskStatus = async () => {
+        const statusResponse = await fetch(`/api/task?taskId=${taskId}`);
+        if (!statusResponse.ok) {
+          throw new Error('Failed to check task status');
+        }
+        
+        const { task } = await statusResponse.json();
+        if (task.status === 'completed') {
+          console.log(`Successfully processed lottery: ${lotteryId}`);
+          await fetchLotteries();
+          return true;
+        } else if (task.status === 'failed') {
+          throw new Error(task.result || 'Task failed');
+        }
+        return false;
+      };
+
+      for (let i = 0; i < 150; i++) {
+        const isComplete = await checkTaskStatus();
+        if (isComplete) break;
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
     } catch (err) {
       console.error(`Error processing lottery ${lotteryId}:`, err);
       setError(`Failed to process lottery ${lotteryId}`);
@@ -160,21 +181,8 @@ export function AccountLotteryPrizes({ address }: { address: PublicKey }) {
       const signature = await connection.sendRawTransaction(signed.serialize());
       
       await connection.confirmTransaction(signature);
-
-      // Update lottery status to finalized
-      const finalizeResponse = await fetch('/api/finalizeLottery', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lotteryId,
-          signature, // Include signature as proof of successful claim
-        }),
-      });
-
-      if (!finalizeResponse.ok) {
-        console.warn('Failed to mark lottery as finalized');
-      }
-
+      console.log("Claimed prize successfully");
+      
       await fetchLotteries();
     } catch (err) {
       console.error(`Error claiming prize for lottery ${lotteryId}:`, err);
