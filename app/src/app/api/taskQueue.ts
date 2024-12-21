@@ -33,8 +33,7 @@ async function getMongoClient() {
             retryReads: true,
             monitorCommands: true,
             heartbeatFrequencyMS: 10000,
-            minHeartbeatFrequencyMS: 500,
-            loadBalanced: false,
+            minHeartbeatFrequencyMS: 500
         });
     }
     return clientPromise;
