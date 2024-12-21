@@ -2,28 +2,18 @@ import { NextResponse } from 'next/server';
 import * as anchor from '@coral-xyz/anchor';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import bs58 from 'bs58';
-
-const PROGRAM_ID = process.env.NEXT_PUBLIC_PROGRAM_ID
-    ? new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID)
-    : null;
+import { LotteryStatus, LotteryProgram } from '@/types/lottery';
+import { getStatusString } from '@/lib/utils';
+import { PROGRAM_ID, RPC_URL, ADMIN_KEY } from '@/lib/constants';
 
 if (!PROGRAM_ID) {
     throw new Error('NEXT_PUBLIC_PROGRAM_ID is not configured.');
 }
 
-type LotteryProgram = anchor.Program<anchor.Idl> & {
-    account: {
-        lotteryState: {
-            fetch(address: PublicKey): Promise<any>;
-            all(): Promise<any[]>;
-        };
-    };
-};
-
 export async function GET() {
     try {
         // Validate environment variables
-        if (!process.env.ADMIN_KEY) {
+        if (!ADMIN_KEY) {
             return NextResponse.json(
                 { error: 'Admin key not configured.' },
                 { status: 500 }
@@ -31,8 +21,8 @@ export async function GET() {
         }
 
         // Load admin keypair
-        const adminKeypair = Keypair.fromSecretKey(bs58.decode(process.env.ADMIN_KEY));
-        const connection = new Connection(process.env.RPC_URL!);
+        const adminKeypair = Keypair.fromSecretKey(bs58.decode(ADMIN_KEY));
+        const connection = new Connection(RPC_URL);
 
         // Create a wallet adapter from the keypair
         const wallet = {
@@ -60,7 +50,9 @@ export async function GET() {
             const hasEnded = account.endTime * 1000 < Date.now();
             const hasParticipants = account.participants && account.participants.length > 0;
             const isAdmin = account.admin.toString() === adminKeypair.publicKey.toString();
-            return hasEnded && hasParticipants && isAdmin;
+            const isProcessable = account.status === LotteryStatus.Active || 
+                                account.status === LotteryStatus.EndedWaitingForWinner;
+            return hasEnded && hasParticipants && isAdmin && isProcessable;
         });
 
         console.log(`Processable lotteries found: ${processableLotteries.length}`);
@@ -69,9 +61,7 @@ export async function GET() {
         return NextResponse.json({
             lotteries: processableLotteries.map(({ account }) => ({
                 lotteryId: account.lotteryId,
-                 status: account.status.active ? 'pending' : 
-                       account.status.completed ? 'completed' : 
-                       account.status.finalized ? 'finalized' : 'unknown',
+                status: getStatusString(account.status),
                 participants: account.participants,
                 winner: account.winner || null,
             })),

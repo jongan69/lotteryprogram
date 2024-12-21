@@ -16,6 +16,8 @@ interface LotteryState {
   participants: PublicKey[]
   endTime: anchor.BN
   winner: PublicKey | null
+  status: number
+  totalPrize: anchor.BN
 }
 
 interface LotteryListItem {
@@ -37,18 +39,32 @@ type LotteryProgram = anchor.Program<anchor.Idl> & {
   }
 }
 
-// Move getProgram outside the component or memoize it inside
-const getProgram = async (connection: Connection, wallet: WalletContextState, PROGRAM_ID: PublicKey): Promise<LotteryProgram> => {
+// Update the getProgram function to accept an optional wallet parameter
+const getProgram = async (connection: Connection, wallet: WalletContextState | null, PROGRAM_ID: PublicKey): Promise<LotteryProgram> => {
   if (!PROGRAM_ID) throw new Error("Program ID not initialized")
-  const provider = new anchor.AnchorProvider(
-    connection,
-    {
-      publicKey: wallet.publicKey!,
-      signTransaction: wallet.signTransaction!,
-      signAllTransactions: wallet.signAllTransactions!,
-    } as anchor.Wallet,
-    { commitment: 'confirmed' }
-  )
+
+  // Create a provider with or without wallet
+  const provider = wallet?.publicKey
+    ? new anchor.AnchorProvider(
+      connection,
+      {
+        publicKey: wallet.publicKey,
+        signTransaction: wallet.signTransaction!,
+        signAllTransactions: wallet.signAllTransactions!,
+      } as anchor.Wallet,
+      { commitment: 'confirmed' }
+    )
+    : new anchor.AnchorProvider(
+      connection,
+      // Provide a dummy wallet when none is connected
+      {
+        publicKey: PublicKey.default,
+        signTransaction: async (tx) => tx,
+        signAllTransactions: async (txs) => txs,
+      } as anchor.Wallet,
+      { commitment: 'confirmed' }
+    );
+
   anchor.setProvider(provider)
 
   // Fetch IDL from chain
@@ -91,16 +107,15 @@ export default function DashboardFeature() {
     fetchProgramId()
   }, [])
 
-  // Memoize the getProgram function
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Update the memoizedGetProgram callback
   const memoizedGetProgram = useCallback(
     () => {
       if (!PROGRAM_ID) throw new Error("Program ID not initialized");
-      return getProgram(connection, wallet, PROGRAM_ID);
+      return getProgram(connection, wallet.publicKey ? wallet : null, PROGRAM_ID);
     },
     [connection, wallet, PROGRAM_ID]
   );
-  
+
   const getLotteryPDA = (lotteryId: string) => {
     if (!PROGRAM_ID) throw new Error("Program ID not initialized")
     const [lotteryPDA] = PublicKey.findProgramAddressSync(
@@ -196,6 +211,7 @@ export default function DashboardFeature() {
   }
 
   // Update the fetchAllLotteries callback
+  /* eslint-disable react-hooks/exhaustive-deps */
   const fetchAllLotteries = useCallback(async () => {
     if (!wallet.publicKey || !PROGRAM_ID) return;
 
@@ -312,6 +328,7 @@ export default function DashboardFeature() {
     return totalPool * 0.9 // 90% goes to winner
   }
 
+  // Update fetchPastLotteries to not check for wallet
   const fetchPastLotteries = useCallback(async () => {
     if (!PROGRAM_ID) return;
 
@@ -320,6 +337,7 @@ export default function DashboardFeature() {
       const program = await memoizedGetProgram();
 
       const accounts = await program.account.lotteryState.all();
+      console.log('All lottery accounts:', accounts);
 
       const completedLotteries = accounts
         .map(({ publicKey, account }: { publicKey: PublicKey; account: any }) => {
@@ -328,22 +346,42 @@ export default function DashboardFeature() {
             lotteryState.entryFee.toNumber(),
             lotteryState.totalTickets
           );
-          
+
           return {
             publicKey,
             account: lotteryState,
             prizeAmount,
             winnerAddress: lotteryState.winner ? lotteryState.winner.toString() : ''
           };
-        })
+        });
+
+      console.log('Mapped lotteries:', completedLotteries);
+
+      const filteredLotteries = completedLotteries
         .filter((lottery: PastLottery) => {
           const endTime = lottery.account.endTime.toNumber() * 1000;
-          return endTime <= Date.now() && lottery.account.winner;
+          const hasEnded = endTime <= Date.now();
+          const isCompleted = lottery.account.status === 3;
+          const hasWinnerSelected = lottery.account.status === 2;
+
+          console.log('Lottery:', {
+            id: lottery.account.lotteryId,
+            endTime: new Date(endTime),
+            hasEnded,
+            isCompleted,
+            hasWinnerSelected,
+            status: lottery.account.status,
+            winner: lottery.account.winner?.toString()
+          });
+
+          return hasEnded && (isCompleted || hasWinnerSelected);
         })
         .sort((a, b) => b.account.endTime.toNumber() - a.account.endTime.toNumber())
-        .slice(0, 10); // Show only last 10 completed lotteries
+        .slice(0, 10);
 
-      setPastLotteries(completedLotteries);
+      console.log('Final filtered lotteries:', filteredLotteries);
+
+      setPastLotteries(filteredLotteries);
     } catch (err) {
       console.error('Failed to fetch past lotteries:', err);
       setError('Failed to fetch past lotteries');
@@ -353,10 +391,11 @@ export default function DashboardFeature() {
   }, [PROGRAM_ID, memoizedGetProgram]);
 
   useEffect(() => {
-    if (!wallet.publicKey) {
-      fetchPastLotteries();
-    }
-  }, [wallet.publicKey, fetchPastLotteries]);
+    fetchPastLotteries();
+
+    const interval = setInterval(fetchPastLotteries, 30000); // Refresh every 30 seconds
+    return () => clearInterval(interval);
+  }, [fetchPastLotteries]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
@@ -410,30 +449,46 @@ export default function DashboardFeature() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {pastLotteries.map((lottery) => (
-                      <tr key={lottery.publicKey.toString()}>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">
-                            {lottery.account.lotteryId}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">
-                            {lottery.prizeAmount.toFixed(3)} SOL
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-500 font-mono">
-                            {`${lottery.winnerAddress.slice(0, 4)}...${lottery.winnerAddress.slice(-4)}`}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-500">
-                            {new Date(lottery.account.endTime.toNumber() * 1000).toLocaleDateString()}
-                          </div>
+                    {loading ? (
+                      <tr>
+                        <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
+                          Loading recent winners...
                         </td>
                       </tr>
-                    ))}
+                    ) : pastLotteries.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
+                          No completed lotteries yet
+                        </td>
+                      </tr>
+                    ) : (
+                      pastLotteries.map((lottery) => (
+                        <tr key={lottery.publicKey.toString()}>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">
+                              {lottery.account.lotteryId}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-900">
+                              {lottery.prizeAmount.toFixed(3)} SOL
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-500 font-mono">
+                              {lottery.winnerAddress
+                                ? `${lottery.winnerAddress.slice(0, 4)}...${lottery.winnerAddress.slice(-4)}`
+                                : 'No Winner'}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-500">
+                              {new Date(lottery.account.endTime.toNumber() * 1000).toLocaleDateString()}
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -551,7 +606,7 @@ export default function DashboardFeature() {
                       <Button
                         onClick={buyTicket}
                         disabled={
-                          loading || 
+                          loading ||
                           Date.now() / 1000 > lotteryState.endTime.toNumber() ||
                           wallet.publicKey.equals(lotteryState.creator)
                         }

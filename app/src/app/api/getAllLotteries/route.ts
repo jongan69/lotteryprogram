@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import * as anchor from '@coral-xyz/anchor';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import bs58 from 'bs58';
+import { LotteryProgram } from '@/types/lottery';
+import { getStatusString } from '@/lib/utils';
 
 const PROGRAM_ID = process.env.NEXT_PUBLIC_PROGRAM_ID
     ? new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID)
@@ -10,15 +12,6 @@ const PROGRAM_ID = process.env.NEXT_PUBLIC_PROGRAM_ID
 if (!PROGRAM_ID) {
     throw new Error('NEXT_PUBLIC_PROGRAM_ID is not configured.');
 }
-
-type LotteryProgram = anchor.Program<anchor.Idl> & {
-    account: {
-        lotteryState: {
-            fetch(address: PublicKey): Promise<any>;
-            all(): Promise<any[]>;
-        };
-    };
-};
 
 export async function GET() {
     try {
@@ -72,9 +65,7 @@ export async function GET() {
         return NextResponse.json({
             lotteries: processableLotteries.map(({ account }) => ({
                 lotteryId: account.lotteryId,
-                status: account.status.active ? 'pending' : 
-                       account.status.completed ? 'completed' : 
-                       account.status.finalized ? 'finalized' : 'unknown',
+                status: getStatusString(account.status),
                 admin: account.admin.toString(),
                 creator: account.creator.toString(),
                 participants: account.participants,

@@ -2,11 +2,7 @@ import { NextResponse } from 'next/server'
 import { Connection, Keypair, PublicKey, SystemProgram } from '@solana/web3.js'
 import * as anchor from "@coral-xyz/anchor"
 import bs58 from 'bs58'
-
-// Constants
-const PROGRAM_ID = new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID!)
-const RPC_ENDPOINT = process.env.RPC_URL!
-const ADMIN_PRIVATE_KEY = process.env.ADMIN_KEY! // Make sure this is set in .env.local
+import { PROGRAM_ID, RPC_URL, ADMIN_KEY } from '@/lib/constants';
 
 export async function POST(request: Request) {
   try {
@@ -23,11 +19,11 @@ export async function POST(request: Request) {
     }
 
     // Create connection
-    const connection = new Connection(RPC_ENDPOINT)
+    const connection = new Connection(RPC_URL)
 
     // Create admin keypair from private key
     const adminKeypair = Keypair.fromSecretKey(
-      bs58.decode(ADMIN_PRIVATE_KEY)
+      bs58.decode(ADMIN_KEY)
     )
 
     const wallet = {
@@ -57,14 +53,14 @@ export async function POST(request: Request) {
     anchor.setProvider(provider)
 
     // Get program
-    const idl = await anchor.Program.fetchIdl(PROGRAM_ID, provider)
+    const idl = await anchor.Program.fetchIdl(PROGRAM_ID!, provider)
     if (!idl) throw new Error("IDL not found")
     const program = new anchor.Program(idl, provider)
 
     // Calculate PDA for lottery account
     const [lotteryPDA] = PublicKey.findProgramAddressSync(
       [Buffer.from("lottery"), Buffer.from(name)],
-      PROGRAM_ID
+      PROGRAM_ID!
     )
 
     // Convert entry fee to lamports

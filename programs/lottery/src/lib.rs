@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use switchboard_on_demand::accounts::RandomnessAccountData;
 use anchor_lang::system_program;
 
-declare_id!("47dK2oPBoGLs5icFYVqEgbkF31TbkFSSbtvToEK3Fn5J");
+declare_id!("Dz3Gwj8tVuuR5Aee9MoBj1d5ENk23FhSjimhH6yoXXTD");
 
 pub const LOTTERY_SEED: &[u8] = b"lottery";
 pub const MAX_PARTICIPANTS: u32 = 100;
@@ -50,6 +50,10 @@ pub mod lottery {
         require!(
             ctx.accounts.lottery.total_tickets < MAX_PARTICIPANTS,
             LotteryError::MaxParticipantsReached
+        );
+        require!(
+            matches!(ctx.accounts.lottery.status, LotteryStatus::Active),
+            LotteryError::InvalidLotteryState
         );
 
         let entry_fee = ctx.accounts.lottery.entry_fee;
@@ -111,8 +115,12 @@ pub mod lottery {
         );
         msg!("Lottery end time verified");
 
-        // 2. Check winner status
+        // 2. Check winner status and lottery status
         require!(lottery.winner.is_none(), LotteryError::WinnerAlreadySelected);
+        require!(
+            matches!(lottery.status, LotteryStatus::Active | LotteryStatus::EndedWaitingForWinner),
+            LotteryError::InvalidLotteryState
+        );
         msg!("No winner previously selected");
         
         // 3. Check participants
@@ -252,15 +260,38 @@ pub mod lottery {
 
         Ok(())
     }
+
+    pub fn update_lottery_status(ctx: Context<UpdateLotteryStatus>, lottery_id: String) -> Result<()> {
+        let lottery = &mut ctx.accounts.lottery;
+        
+        require!(
+            lottery.lottery_id == lottery_id,
+            LotteryError::InvalidLotteryId
+        );
+
+        let current_time = Clock::get().unwrap().unix_timestamp;
+        
+        match lottery.status {
+            LotteryStatus::Active if current_time > lottery.end_time => {
+                lottery.status = LotteryStatus::EndedWaitingForWinner;
+                msg!("Lottery status updated to EndedWaitingForWinner");
+            },
+            _ => {
+                msg!("No status update needed");
+            }
+        }
+
+        Ok(())
+    }
 }
 
 // === LotteryState Struct Definition ===
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Debug)]
 pub enum LotteryStatus {
-    Active,
-    EndedWaitingForWinner,
-    WinnerSelected,
-    Completed,
+    Active = 0,
+    EndedWaitingForWinner = 1,
+    WinnerSelected = 2,
+    Completed = 3,
 }
 
 #[account]
@@ -369,6 +400,18 @@ pub struct CloseLottery<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[derive(Accounts)]
+#[instruction(lottery_id: String)]
+pub struct UpdateLotteryStatus<'info> {
+    #[account(
+        mut,
+        seeds = [LOTTERY_PREFIX, lottery_id.as_bytes()],
+        bump
+    )]
+    pub lottery: Account<'info, LotteryState>,
+    pub system_program: Program<'info, System>,
+}
+
 // === Errors ===
 #[error_code]
 pub enum LotteryError {
@@ -398,4 +441,6 @@ pub enum LotteryError {
     InvalidLotteryId,
     #[msg("Lottery creator cannot participate in their own lottery")]
     CreatorCannotParticipate,
+    #[msg("Invalid lottery state for this operation")]
+    InvalidLotteryState,
 }

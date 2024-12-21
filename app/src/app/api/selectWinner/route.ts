@@ -1,74 +1,18 @@
 import { NextResponse } from "next/server";
 import * as anchor from "@coral-xyz/anchor";
-import { Keypair, PublicKey, Connection, SystemProgram, Commitment } from "@solana/web3.js";
+import { Keypair, PublicKey, Connection } from "@solana/web3.js";
 import * as sb from "@switchboard-xyz/on-demand";
 import bs58 from "bs58";
+import { confirmTransaction, setupQueue, createSelectWinnerInstruction } from "@/lib/transactions";
+import { PROGRAM_ID, RPC_URL, ADMIN_KEY, COMMITMENT, computeUnitPrice, computeUnitLimitMultiple } from "@/lib/constants";
 
 export const maxDuration = 30;
 
-const PROGRAM_ID = new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID!);
-const RPC_URL = process.env.RPC_URL!;
-const ADMIN_KEY = process.env.ADMIN_KEY!;
-const COMMITMENT = "processed";
-const computeUnitPrice = 100_000_000;
-const computeUnitLimitMultiple = 2;
-
 const txOpts = {
-    commitment: "processed",  // Transaction commitment level
-    skipPreflight: true,                  // Skip preflight checks
-    maxRetries: 0,                          // Retry attempts for transaction
+    commitment: COMMITMENT,  // Transaction commitment level
+    skipPreflight: true,     // Skip preflight checks
+    maxRetries: 0,           // Retry attempts for transaction
 };
-
-// Utility to confirm a transaction with retries
-async function confirmTransaction(connection: Connection, signature: string) {
-    let attempts = 0;
-    const maxAttempts = 10;
-    while (attempts < maxAttempts) {
-        const status = await connection.getSignatureStatus(signature, { searchTransactionHistory: true });
-        if (status?.value?.confirmationStatus === "confirmed") {
-            console.log(`Transaction confirmed: ${signature}`);
-            return;
-        }
-        console.log(`Waiting for confirmation (attempt ${attempts + 1}/${maxAttempts})...`);
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-        attempts++;
-    }
-    throw new Error(`Transaction not confirmed: ${signature}`);
-}
-
-async function createSelectWinnerInstruction(
-    lotteryProgram: anchor.Program,
-    lotteryAccount: PublicKey,
-    randomnessAccount: PublicKey,
-    lotteryId: string
-): Promise<anchor.web3.TransactionInstruction> {
-    return await lotteryProgram.methods
-        .selectWinner(lotteryId)
-        .accounts({
-            lottery: lotteryAccount,
-            randomnessAccountData: randomnessAccount,
-            systemProgram: SystemProgram.programId,
-        })
-        .instruction();
-}
-
-// Utility function to setup the Switchboard queue
-async function setupQueue(program: anchor.Program): Promise<PublicKey> {
-    const queueAccount = await sb.getDefaultQueue(
-        program.provider.connection.rpcEndpoint
-    );
-    console.log("Queue account found:", queueAccount.pubkey.toString());
-    try {
-        console.log("Loading queue data...");
-        await queueAccount.loadData();
-        console.log("Queue data loaded successfully");
-    } catch (err) {
-        console.error("Error loading queue data:", err);
-        console.error("Queue not found, ensure you are using devnet in your env");
-        process.exit(1);
-    }
-    return queueAccount.pubkey;
-}
 
 // API Endpoint
 export async function POST(request: Request) {
@@ -98,13 +42,13 @@ export async function POST(request: Request) {
         const provider = new anchor.AnchorProvider(connection, wallet, {
             commitment: COMMITMENT
         });
-        const idl = await anchor.Program.fetchIdl(PROGRAM_ID, provider);
+        const idl = await anchor.Program.fetchIdl(PROGRAM_ID!, provider);
         if (!idl) throw new Error("IDL not found for program");
         // Create the program instance correctly
         // console.log("IDL:", idl);
         let lotteryProgram: any;
         try {
-            const idl = await anchor.Program.fetchIdl(PROGRAM_ID, provider);
+            const idl = await anchor.Program.fetchIdl(PROGRAM_ID!, provider);
             if (!idl) {
                 throw new Error("IDL not found for program");
             }
