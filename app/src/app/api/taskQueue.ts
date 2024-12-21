@@ -19,6 +19,8 @@ const txOpts = {
 };
 
 let clientPromise: Promise<MongoClient>;
+let isProcessing = false;
+let processingTimeout: NodeJS.Timeout | null = null;
 
 async function getMongoClient() {
     if (!clientPromise) {
@@ -231,6 +233,24 @@ async function processQueue() {
     }
 }
 
+async function startProcessing() {
+    if (isProcessing) return;
+    
+    isProcessing = true;
+    try {
+        await processQueue();
+    } catch (error) {
+        console.error("Error in process queue:", error);
+    } finally {
+        isProcessing = false;
+        // Schedule next processing
+        if (processingTimeout) {
+            clearTimeout(processingTimeout);
+        }
+        processingTimeout = setTimeout(startProcessing, 1000);
+    }
+}
+
 export interface Task {
     _id?: ObjectId;
     action: string;
@@ -257,6 +277,10 @@ export const taskQueue = {
         };
 
         const result = await tasks.insertOne(task);
+        
+        // Start processing immediately when a task is enqueued
+        startProcessing();
+        
         return result.insertedId;
     },
 
@@ -265,7 +289,22 @@ export const taskQueue = {
         const db = client.db("taskQueue");
         const tasks = db.collection<Task>("tasks");
         return await tasks.findOne({ _id: new ObjectId(taskId) });
+    },
+
+    // Add method to start processing
+    startProcessing,
+    
+    // Add method to stop processing
+    stopProcessing() {
+        if (processingTimeout) {
+            clearTimeout(processingTimeout);
+            processingTimeout = null;
+        }
+        isProcessing = false;
     }
 };
 
-setInterval(processQueue, 5000);
+if (process.env.NODE_ENV !== 'test') {
+    // Start processing when the module loads
+    startProcessing();
+}

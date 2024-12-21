@@ -1,5 +1,6 @@
+import './init';  // Import the init file to ensure task processing is started
+import { taskQueue } from '../taskQueue';
 import { NextRequest, NextResponse } from "next/server";
-import { taskQueue } from "../taskQueue";
 
 // POST handler for enqueueing new tasks
 export async function POST(request: NextRequest) {
