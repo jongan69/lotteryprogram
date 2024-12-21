@@ -7,10 +7,12 @@ import { LAMPORTS_PER_SOL, PublicKey, SystemProgram, TransactionMessage, Version
 import { Button } from '@/components/ui/button'
 import { Lottery, LotteryListItem, PastLottery } from '@/types/lottery'
 import { getProgram } from '@/lib/getProgram'
+import { useCluster } from '../cluster/cluster-data-access'
 
 
 export default function DashboardFeature() {
   const { connection } = useConnection()
+  const { cluster } = useCluster()
   const wallet = useWallet()
   const [lotteryState, setLotteryState] = useState<Lottery | null>(null)
   const [loading, setLoading] = useState(false)
@@ -32,7 +34,9 @@ export default function DashboardFeature() {
       try {
         const response = await fetch('/api/getProgramId')
         if (!response.ok) throw new Error('Failed to fetch program ID')
+        
         const { programId } = await response.json()
+        console.log('Program ID:', programId, 'on:', cluster.network)
         setPROGRAM_ID(new PublicKey(programId))
       } catch (err) {
         console.error('Failed to fetch program ID:', err)
@@ -322,7 +326,7 @@ export default function DashboardFeature() {
         title="Solana Lottery"
         subtitle={
           <div className="space-y-2">
-            <p>Try your luck in our decentralized lottery system!</p>
+            <p>Try your LOCK in our decentralized lottery system! Built on Switchboard VRF</p>
             <p className="text-sm text-gray-600">
               85% of the pool goes to the winner • 10% development fee • 5% goes to the creator!
             </p>

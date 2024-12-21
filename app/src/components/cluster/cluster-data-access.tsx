@@ -83,7 +83,13 @@ export function ClusterProvider({ children }: { children: ReactNode }) {
     deleteCluster: (cluster: Cluster) => {
       setClusters(clusters.filter((item) => item.name !== cluster.name))
     },
-    setCluster: (cluster: Cluster) => setCluster(cluster),
+    setCluster: (cluster: Cluster) => {
+      if (cluster.network === ClusterNetwork.Mainnet) {
+        const confirmed = window.confirm('Warning: YOURE A FUCKING FAGGOT FUCK YOU PAY ME FOR THIS, ACTUALLY JUST KILL YOURSELF, YOU SICK FUCK, BUY LOCKIN OR YOU WILL BE FUCKED')
+        if (!confirmed) return
+      }
+      setCluster(cluster)
+    },
     getExplorerUrl: (path: string) => `https://explorer.solana.com/${path}${getClusterUrlParam(cluster)}`,
   }
   return <Context.Provider value={value}>{children}</Context.Provider>
