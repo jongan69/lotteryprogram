@@ -13,7 +13,7 @@ const computeUnitLimitMultiple = 2;
 
 const txOpts = {
     commitment: "processed",  // Transaction commitment level
-    skipPreflight: false,                  // Skip preflight checks
+    skipPreflight: true,                  // Skip preflight checks
     maxRetries: 0,                          // Retry attempts for transaction
 };
 
@@ -99,14 +99,13 @@ export async function POST(request: Request) {
         const idl = await anchor.Program.fetchIdl(PROGRAM_ID, provider);
         if (!idl) throw new Error("IDL not found for program");
         // Create the program instance correctly
-        console.log("IDL:", idl);
+        // console.log("IDL:", idl);
         let lotteryProgram: any;
         try {
             const idl = await anchor.Program.fetchIdl(PROGRAM_ID, provider);
             if (!idl) {
                 throw new Error("IDL not found for program");
             }
-
             lotteryProgram = new anchor.Program(
                 idl,
                 provider
