@@ -5,30 +5,12 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
 import { useInterval } from 'react-use';
 import * as anchor from '@coral-xyz/anchor';
-
-interface LotteryState {
-  lotteryId: string;
-  status: 'pending' | 'completed' | 'finalized';
-  processing?: boolean;
-  participants?: number;
-  winner?: string;
-  prizeAmount?: number;
-  creator?: string;
-}
-
-const isValidPublicKey = (key: string | undefined): boolean => {
-  if (!key) return false;
-  try {
-    new PublicKey(key);
-    return true;
-  } catch {
-    return false;
-  }
-};
+import { LotteryState } from '@/types/lottery';
+import { isValidPublicKey, getStatusString } from '@/lib/utils';
+import { useTransactionToast } from '../ui/ui-layout';
 
 export function AccountLotteryPrizes() {
   const wallet = useWallet()
-
   const { connection } = useConnection()
   const [lotteries, setLotteries] = useState<LotteryState[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +20,7 @@ export function AccountLotteryPrizes() {
   const [allLotteries, setAllLotteries] = useState<LotteryState[]>([]);
   const [tableLoading, setTableLoading] = useState(true);
   const POLL_INTERVAL = 100000; // 100 seconds
+  const transactionToast = useTransactionToast()
 
   const fetchLotteries = async () => {
     try {
@@ -91,7 +74,7 @@ export function AccountLotteryPrizes() {
       console.log(`Processing lottery: ${lotteryId}`);
       setProcessingLotteryId(lotteryId);
       setError(null);
-  
+
       const response = await fetch('/api/selectWinner', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -100,13 +83,13 @@ export function AccountLotteryPrizes() {
           params: { lotteryId },
         }),
       });
-  
+
       if (!response.ok) {
         const errorResponse = await response.json();
         console.error(`Failed to process lottery: ${lotteryId}`, errorResponse);
         throw new Error(errorResponse.error || 'Failed to process lottery');
       }
-  
+
       console.log(`Successfully processed lottery: ${lotteryId}`);
       await fetchLotteries();
     } catch (err) {
@@ -116,7 +99,7 @@ export function AccountLotteryPrizes() {
       setProcessingLotteryId(null);
       console.log(`Completed processing for lottery: ${lotteryId}`);
     }
-  };  
+  };
 
   const claimPrize = async (lotteryId: string, creator: PublicKey) => {
     try {
@@ -129,11 +112,11 @@ export function AccountLotteryPrizes() {
       if (!wallet.publicKey || !wallet.signTransaction) {
         throw new Error('Wallet not connected');
       }
-      
+
       if (!isValidPublicKey(creator.toString())) {
         throw new Error('Invalid creator address');
       }
-      
+
       setClaimingLotteryId(lotteryId);
       setError(null);
 
@@ -142,8 +125,8 @@ export function AccountLotteryPrizes() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'collectPrize',
-          params: { 
-            lotteryId, 
+          params: {
+            lotteryId,
             participant: { publicKey: wallet.publicKey.toString() },
             creator: creator.toString()
           },
@@ -156,37 +139,42 @@ export function AccountLotteryPrizes() {
       }
 
       const { transaction: serializedTransaction } = await response.json();
-      
+
       // Convert the serialized transaction from base64 to Uint8Array
       const transactionBuffer = Buffer.from(serializedTransaction, 'base64');
-      
+
       // Deserialize and sign the partially signed transaction
       const transaction = anchor.web3.VersionedTransaction.deserialize(
         transactionBuffer
       );
-      
+
       // Player signs the admin-signed transaction
       const signed = await wallet.signTransaction(transaction);
-      
+
       // Send the fully signed transaction
       const signature = await connection.sendRawTransaction(signed.serialize());
-      
-      await connection.confirmTransaction(signature);
+
+      // Replace the deprecated confirmTransaction call
+      const latestBlockhash = await connection.getLatestBlockhash();
+      await connection.confirmTransaction({
+        signature,
+        ...latestBlockhash
+      });
       console.log("Claimed prize successfully");
-      
+      transactionToast(signature);
       // Immediately update the local state
-      setAllLotteries(prevLotteries => 
-        prevLotteries.map(lottery => 
+      setAllLotteries(prevLotteries =>
+        prevLotteries.map(lottery =>
           lottery.lotteryId === lotteryId
-            ? { ...lottery, status: 'finalized' }
+            ? { ...lottery, status: 3 }
             : lottery
         )
       );
-      
-      setLotteries(prevLotteries => 
+
+      setLotteries(prevLotteries =>
         prevLotteries.filter(lottery => lottery.lotteryId !== lotteryId)
       );
-      
+
       // Optional: Fetch fresh data from the server
       await Promise.all([
         fetchLotteries(),
@@ -213,7 +201,7 @@ export function AccountLotteryPrizes() {
 
       const data = await response.json();
       const pendingLotteries = data.lotteries?.filter(
-        (lottery: LotteryState) => lottery.status === 'pending' && !lottery.processing
+        (lottery: LotteryState) => lottery.status === 1
       );
 
       for (const lottery of pendingLotteries) {
@@ -236,9 +224,14 @@ export function AccountLotteryPrizes() {
       status: lottery.status,
       winner: lottery.winner,
       currentAddress: wallet.publicKey?.toString(),
-      shouldShowClaim: lottery.status === 'completed' && lottery.winner === wallet.publicKey?.toString(),
-      addressMatch: lottery.winner === wallet.publicKey?.toString()
+      shouldShowClaim: lottery.status === 2 &&
+        lottery.winner?.toString() === wallet.publicKey?.toString(),
+      addressMatch: lottery.winner?.toString() === wallet.publicKey?.toString()
     });
+
+    const prizeAmountSol = lottery.totalPrize ?
+      (lottery.totalPrize.toNumber() / 1000000000).toFixed(2) :
+      'N/A';
 
     return (
       <tr key={`table-${lottery.lotteryId}`} className="hover:bg-base-300">
@@ -249,25 +242,25 @@ export function AccountLotteryPrizes() {
           {(lottery.participants || 0).toString()}
         </td>
         <td className="whitespace-nowrap max-w-[6rem] truncate">
-          {lottery.prizeAmount ? `${lottery.prizeAmount} SOL` : 'N/A'}
+          {`${prizeAmountSol} SOL`}
         </td>
         <td className="whitespace-nowrap max-w-[8rem] truncate hidden md:table-cell font-mono">
-          {lottery.winner 
-            ? `${lottery.winner.slice(0, 4)}...${lottery.winner.slice(-4)}` 
+          {lottery.winner
+            ? `${lottery.winner.toString().slice(0, 4)}...${lottery.winner.toString().slice(-4)}`
             : 'Pending'}
         </td>
         <td className="whitespace-nowrap hidden md:table-cell">
           {lottery.creator ? lottery.creator.toString() : ''}
         </td>
         <td className="whitespace-nowrap">
-          {lottery.status === 'completed' && 
-           lottery.winner === wallet.publicKey?.toString() ? (
+          {lottery.status === 2 &&
+            lottery.winner?.toString() === wallet.publicKey?.toString() ? (
             <div className="tooltip" data-tip={
               !lottery.creator ? "Missing creator address" :
-              !isValidPublicKey(lottery.creator) ? "Invalid creator address" :
-              claimingLotteryId === lottery.lotteryId ? "Processing claim..." :
-              !wallet.publicKey ? "Please connect your wallet" :
-              "Click to claim your prize"
+                !isValidPublicKey(lottery.creator.toString()) ? "Invalid creator address" :
+                  claimingLotteryId === lottery.lotteryId ? "Processing claim..." :
+                    !wallet.publicKey ? "Please connect your wallet" :
+                      "Click to claim your prize"
             }>
               <button
                 className="btn btn-xs btn-primary"
@@ -281,9 +274,9 @@ export function AccountLotteryPrizes() {
                   lottery.creator ? claimPrize(lottery.lotteryId, new PublicKey(lottery.creator)) : null;
                 }}
                 disabled={
-                  claimingLotteryId === lottery.lotteryId || 
-                  !lottery.creator || 
-                  !isValidPublicKey(lottery.creator) ||
+                  claimingLotteryId === lottery.lotteryId ||
+                  !lottery.creator ||
+                  !isValidPublicKey(new PublicKey(lottery.creator).toString()) ||
                   !wallet.publicKey
                 }
               >
@@ -295,18 +288,15 @@ export function AccountLotteryPrizes() {
               </button>
             </div>
           ) : (
-            <span className={`badge ${
-              lottery.processing 
-                ? 'badge-warning' 
-                : lottery.status === 'finalized'
-                  ? 'badge-neutral'
-                  : lottery.status === 'completed' 
-                    ? 'badge-success' 
+            <span className={`badge ${getStatusString(lottery.status) === 'finalized'
+                ? 'badge-neutral'
+                : getStatusString(lottery.status) === 'completed'
+                  ? 'badge-success'
+                  : getStatusString(lottery.status) === 'pending'
+                    ? 'badge-warning'
                     : 'badge-info'
-            }`}>
-              {lottery.processing ? 'Processing...' : 
-               typeof lottery.status === 'object' ? 'pending' : 
-               lottery.status}
+              }`}>
+              {getStatusString(lottery.status)}
             </span>
           )}
         </td>

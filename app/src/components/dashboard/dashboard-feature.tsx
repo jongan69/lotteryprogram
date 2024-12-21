@@ -2,76 +2,12 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { AppHero } from '../ui/ui-layout'
-import { useConnection, useWallet, WalletContextState } from '@solana/wallet-adapter-react'
-import { Connection, LAMPORTS_PER_SOL, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } from '@solana/web3.js'
+import { useConnection, useWallet } from '@solana/wallet-adapter-react'
+import { LAMPORTS_PER_SOL, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } from '@solana/web3.js'
 import { Button } from '@/components/ui/button'
-import * as anchor from "@coral-xyz/anchor"
+import { LotteryState, LotteryListItem, PastLottery } from '@/types/lottery'
+import { getProgram } from '@/lib/getProgram'
 
-interface LotteryState {
-  lotteryId: string
-  admin: PublicKey
-  creator: PublicKey
-  entryFee: anchor.BN
-  totalTickets: number
-  participants: PublicKey[]
-  endTime: anchor.BN
-  winner: PublicKey | null
-  status: number
-  totalPrize: anchor.BN
-}
-
-interface LotteryListItem {
-  publicKey: PublicKey
-  account: LotteryState
-}
-
-interface PastLottery extends LotteryListItem {
-  prizeAmount: number;
-  winnerAddress: string;
-}
-
-type LotteryProgram = anchor.Program<anchor.Idl> & {
-  account: {
-    lotteryState: {
-      fetch(address: PublicKey): Promise<LotteryState>;
-      all(): Promise<{ publicKey: PublicKey; account: LotteryState }[]>;
-    }
-  }
-}
-
-// Update the getProgram function to accept an optional wallet parameter
-const getProgram = async (connection: Connection, wallet: WalletContextState | null, PROGRAM_ID: PublicKey): Promise<LotteryProgram> => {
-  if (!PROGRAM_ID) throw new Error("Program ID not initialized")
-
-  // Create a provider with or without wallet
-  const provider = wallet?.publicKey
-    ? new anchor.AnchorProvider(
-      connection,
-      {
-        publicKey: wallet.publicKey,
-        signTransaction: wallet.signTransaction!,
-        signAllTransactions: wallet.signAllTransactions!,
-      } as anchor.Wallet,
-      { commitment: 'confirmed' }
-    )
-    : new anchor.AnchorProvider(
-      connection,
-      // Provide a dummy wallet when none is connected
-      {
-        publicKey: PublicKey.default,
-        signTransaction: async (tx) => tx,
-        signAllTransactions: async (txs) => txs,
-      } as anchor.Wallet,
-      { commitment: 'confirmed' }
-    );
-
-  anchor.setProvider(provider)
-
-  // Fetch IDL from chain
-  const idl = await anchor.Program.fetchIdl(PROGRAM_ID, provider)
-  if (!idl) throw new Error("IDL not found")
-  return new anchor.Program(idl, provider) as LotteryProgram
-}
 
 export default function DashboardFeature() {
   const { connection } = useConnection()
@@ -126,6 +62,7 @@ export default function DashboardFeature() {
   }
 
   // Function to fetch lottery state
+  /* eslint-disable react-hooks/exhaustive-deps */
   const fetchLotteryState = useCallback(async () => {
     if (!wallet.publicKey || !selectedLotteryId || !PROGRAM_ID) return;
 
@@ -211,7 +148,6 @@ export default function DashboardFeature() {
   }
 
   // Update the fetchAllLotteries callback
-  /* eslint-disable react-hooks/exhaustive-deps */
   const fetchAllLotteries = useCallback(async () => {
     if (!wallet.publicKey || !PROGRAM_ID) return;
 

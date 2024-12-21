@@ -15,7 +15,6 @@ export interface Cluster {
 
 export enum ClusterNetwork {
   Mainnet = 'mainnet-beta',
-  Testnet = 'testnet',
   Devnet = 'devnet',
   Custom = 'custom',
 }
@@ -29,12 +28,7 @@ export const defaultClusters: Cluster[] = [
     endpoint: clusterApiUrl('devnet'),
     network: ClusterNetwork.Devnet,
   },
-  { name: 'local', endpoint: 'http://localhost:8899' },
-  {
-    name: 'testnet',
-    endpoint: clusterApiUrl('testnet'),
-    network: ClusterNetwork.Testnet,
-  },
+  { name: 'local', endpoint: 'http://localhost:8899' }
 ]
 
 const clusterAtom = atomWithStorage<Cluster>('solana-cluster', defaultClusters[0])
@@ -104,9 +98,6 @@ function getClusterUrlParam(cluster: Cluster): string {
       break
     case ClusterNetwork.Mainnet:
       suffix = ''
-      break
-    case ClusterNetwork.Testnet:
-      suffix = 'testnet'
       break
     default:
       suffix = `custom&customUrl=${encodeURIComponent(cluster.endpoint)}`

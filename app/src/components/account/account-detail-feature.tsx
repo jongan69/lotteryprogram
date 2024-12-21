@@ -2,13 +2,12 @@
 
 import { PublicKey } from '@solana/web3.js'
 import { useMemo } from 'react'
-
 import { useParams } from 'next/navigation'
-
 import { ExplorerLink } from '../cluster/cluster-ui'
 import { AppHero, ellipsify } from '../ui/ui-layout'
 import { AccountBalance, AccountButtons, AccountTokens, AccountTransactions } from './account-ui'
 import { AccountLotteryPrizes } from './account-prizes'
+
 export default function AccountDetailFeature() {
   const params = useParams()
   const address = useMemo(() => {
