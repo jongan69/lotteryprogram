@@ -359,7 +359,7 @@ export function AccountDetail({ address }: { address: PublicKey }) {
       <AccountBalance address={address} />
       <AccountButtons address={address} />
       <div className="border-2 border-dashed border-base-300 p-2 lg:p-4">
-        <AccountLotteryPrizes address={address} />
+        <AccountLotteryPrizes />
       </div>
       <AccountTokens address={address} />
       <AccountTransactions address={address} />

@@ -2,12 +2,13 @@ import { NextResponse } from "next/server";
 import * as anchor from "@coral-xyz/anchor";
 import { Keypair, PublicKey, Connection, SystemProgram } from "@solana/web3.js";
 import bs58 from "bs58";
+import { MongoClient } from 'mongodb';
 
 const RPC_URL = process.env.RPC_URL!;
 const ADMIN_KEY = process.env.ADMIN_KEY!;
 const PROGRAM_ID = new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID!);
+const MONGODB_URI = process.env.MONGODB_URI!;
 const COMMITMENT = "processed";
-
 
 async function claimPrizeInstruction(
     lotteryProgram: anchor.Program,
@@ -32,6 +33,8 @@ async function claimPrizeInstruction(
 
 // API Endpoint
 export async function POST(request: Request) {
+    const client = new MongoClient(MONGODB_URI);
+    
     try {
         const { action, params } = await request.json();
         if (action !== "collectPrize") {
@@ -72,7 +75,7 @@ export async function POST(request: Request) {
             console.error("Error initializing lottery program:", error);
             throw error;
         }
-        console.log(lotteryProgram);
+        // console.log(lotteryProgram);
         console.log("Lottery Program:", lotteryProgram.programId.toString());
         // Derive Lottery PDA and fetch state
         const [lotteryAccount] = PublicKey.findProgramAddressSync(
@@ -103,13 +106,28 @@ export async function POST(request: Request) {
         const transaction = new anchor.web3.VersionedTransaction(messageV0);
         transaction.sign([adminKeypair]); // Admin signs first
 
-        // Return the partially signed transaction for the client to complete
+        // Serialize the transaction to base64
+        const serializedTransaction = Buffer.from(
+            transaction.serialize()
+        ).toString('base64');
+
+        // Update lottery status in database
+        await client.connect();
+        const db = client.db('lottery_db');
+        await db.collection('lotteries').updateOne(
+            { lotteryId: lotteryId },
+            { $set: { status: 'finalized' } }
+        );
+
+        // Return the base64 encoded transaction
         return NextResponse.json({ 
             success: true, 
-            transaction: transaction.serialize() 
+            transaction: serializedTransaction 
         });
     } catch (error: any) {
         console.error("Error in collectPrize:", error);
         return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    } finally {
+        await client.close();
     }
 }

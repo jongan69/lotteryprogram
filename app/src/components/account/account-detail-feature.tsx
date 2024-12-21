@@ -40,7 +40,7 @@ export default function AccountDetailFeature() {
         </div>
       </AppHero>
       <div className="space-y-4 sm:space-y-8 px-2 sm:px-0">
-        <AccountLotteryPrizes address={address} />
+        <AccountLotteryPrizes />
         <AccountTokens address={address} />
         <AccountTransactions address={address} />
       </div>

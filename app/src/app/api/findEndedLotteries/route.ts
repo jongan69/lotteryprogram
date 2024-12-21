@@ -58,20 +58,20 @@ export async function GET() {
         // Filter for processable lotteries
         const processableLotteries = lotteryAccounts.filter(({ account }) => {
             const hasEnded = account.endTime * 1000 < Date.now();
-            const hasNoWinner = !account.winner;
             const hasParticipants = account.participants && account.participants.length > 0;
             const isAdmin = account.admin.toString() === adminKeypair.publicKey.toString();
-
-            return hasEnded && hasNoWinner && hasParticipants && isAdmin;
+            return hasEnded && hasParticipants && isAdmin;
         });
 
-        // console.log(`Processable lotteries found: ${processableLotteries.length}`);
-
+        console.log(`Processable lotteries found: ${processableLotteries.length}`);
+        // console.log('Processable lotteries:', processableLotteries);
         // Return processable lotteries
         return NextResponse.json({
             lotteries: processableLotteries.map(({ account }) => ({
                 lotteryId: account.lotteryId,
-                status: account.winner ? 'completed' : 'pending',
+                 status: account.status.active ? 'pending' : 
+                       account.status.completed ? 'completed' : 
+                       account.status.finalized ? 'finalized' : 'unknown',
                 participants: account.participants,
                 winner: account.winner || null,
             })),

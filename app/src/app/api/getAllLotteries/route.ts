@@ -64,12 +64,19 @@ export async function GET() {
         });
 
         // console.log(`All lotteries found: ${lotteryAccounts.length}`);
-
+        // console.log(processableLotteries);
+        // for (const lottery of processableLotteries) {
+        //     console.log(lottery.account.status);
+        // }
         // Return processable lotteries
         return NextResponse.json({
             lotteries: processableLotteries.map(({ account }) => ({
                 lotteryId: account.lotteryId,
-                status: account.winner ? 'completed' : 'pending',
+                status: account.status.active ? 'pending' : 
+                       account.status.completed ? 'completed' : 
+                       account.status.finalized ? 'finalized' : 'unknown',
+                admin: account.admin.toString(),
+                creator: account.creator.toString(),
                 participants: account.participants,
                 prizeAmount: account.prizeAmount,
                 winner: account.winner || null,

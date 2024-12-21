@@ -152,13 +152,7 @@ export default function DashboardFeature() {
       const program = await memoizedGetProgram()
       const lotteryPDA = getLotteryPDA(selectedLotteryId)
 
-      // Create transfer instruction for entry fee
-      const transferIx = SystemProgram.transfer({
-        fromPubkey: wallet.publicKey,
-        toPubkey: lotteryPDA,
-        lamports: lotteryState.entryFee.toNumber()
-      })
-
+      // Remove the transferIx and just use the program instruction
       const ix = await program.methods
         .buyTicket(selectedLotteryId)
         .accounts({
@@ -172,7 +166,7 @@ export default function DashboardFeature() {
       const messageV0 = new TransactionMessage({
         payerKey: wallet.publicKey,
         recentBlockhash: latestBlockhash.blockhash,
-        instructions: [transferIx, ix], // Add both instructions
+        instructions: [ix], // Remove transferIx, only use the program instruction
       }).compileToV0Message()
 
       const transaction = new VersionedTransaction(messageV0)
@@ -196,52 +190,6 @@ export default function DashboardFeature() {
       } else {
         setError('Failed to buy ticket: ' + (err.message || 'Unknown error'))
       }
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Claim prize function
-  const claimPrize = async () => {
-    if (!wallet.publicKey || !lotteryState || !wallet.signTransaction || !selectedLotteryId) return
-
-    try {
-      setLoading(true)
-      const program = await memoizedGetProgram()
-      const lotteryPDA = getLotteryPDA(selectedLotteryId)
-
-      const ix = await program.methods
-        .claimPrize(selectedLotteryId)
-        .accounts({
-          lottery: lotteryPDA,
-          player: wallet.publicKey,
-          creator: lotteryState.creator,
-          developer: wallet.publicKey,
-          systemProgram: SystemProgram.programId,
-        })
-        .instruction()
-
-      const latestBlockhash = await connection.getLatestBlockhash()
-      const messageV0 = new TransactionMessage({
-        payerKey: wallet.publicKey,
-        recentBlockhash: latestBlockhash.blockhash,
-        instructions: [ix],
-      }).compileToV0Message()
-
-      const transaction = new VersionedTransaction(messageV0)
-
-      const signed = await wallet.signTransaction(transaction)
-      const signature = await connection.sendTransaction(signed)
-      await connection.confirmTransaction({
-        signature,
-        blockhash: latestBlockhash.blockhash,
-        lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
-      })
-
-      await fetchLotteryState()
-    } catch (err) {
-      console.error('Failed to claim prize:', err)
-      setError('Failed to claim prize')
     } finally {
       setLoading(false)
     }
@@ -599,7 +547,7 @@ export default function DashboardFeature() {
                   </div>
 
                   {wallet.publicKey && (
-                    <div className="pt-4 space-y-3">
+                    <div className="pt-4">
                       <Button
                         onClick={buyTicket}
                         disabled={
@@ -621,22 +569,6 @@ export default function DashboardFeature() {
                             : `Buy Ticket for ${lotteryState.entryFee.toNumber() / LAMPORTS_PER_SOL} SOL`
                         }
                       </Button>
-
-                      {lotteryState.winner && lotteryState.winner.equals(wallet.publicKey) && (
-                        <Button
-                          onClick={claimPrize}
-                          disabled={loading}
-                          className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700"
-                        >
-                          {loading ? (
-                            <div className="flex items-center justify-center">
-                              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                              Claiming...
-                            </div>
-                          ) : 'Claim Prize'
-                          }
-                        </Button>
-                      )}
                     </div>
                   )}
                 </div>
