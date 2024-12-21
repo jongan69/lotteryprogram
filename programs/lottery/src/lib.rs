@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use switchboard_on_demand::accounts::RandomnessAccountData;
 use anchor_lang::system_program;
 
-declare_id!("AxL3SAtyAEDWHopxCwC7FmV7LxzhXgZjpfpVyUvLwRhX");
+declare_id!("47dK2oPBoGLs5icFYVqEgbkF31TbkFSSbtvToEK3Fn5J");
 
 pub const LOTTERY_SEED: &[u8] = b"lottery";
 pub const MAX_PARTICIPANTS: u32 = 100;
@@ -12,17 +12,20 @@ pub const LOTTERY_PREFIX: &[u8] = b"lottery";
 pub mod lottery {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>, lottery_id: String, entry_fee: u64, end_time: i64) -> Result<()> {
+    pub fn initialize(ctx: Context<Initialize>, lottery_id: String, entry_fee: u64, end_time: i64, creator_key: Pubkey) -> Result<()> {
         let lottery = &mut ctx.accounts.lottery;
         lottery.lottery_id = lottery_id;
         lottery.admin = ctx.accounts.admin.key();
+        lottery.creator = creator_key;
         lottery.entry_fee = entry_fee;
         lottery.end_time = end_time;
         lottery.total_tickets = 0;
         lottery.winner = None;
-        lottery.index = 0;  // Track the current index for participants
-        lottery.randomness_account = None;  // Add a randomness account for the lottery
-        lottery.participants.clear();  // Ensure the participants vector is cleared
+        lottery.index = 0;
+        lottery.randomness_account = None;
+        lottery.participants.clear();
+        lottery.status = LotteryStatus::Active;
+        lottery.total_prize = 0;
         msg!("Lottery {} Initialized!", lottery.lottery_id);
         Ok(())
     }
@@ -31,6 +34,10 @@ pub mod lottery {
         require!(
             ctx.accounts.lottery.lottery_id == lottery_id,
             LotteryError::InvalidLotteryId
+        );
+        require!(
+            ctx.accounts.player.key() != ctx.accounts.lottery.creator,
+            LotteryError::CreatorCannotParticipate
         );
         require!(
             Clock::get().unwrap().unix_timestamp <= ctx.accounts.lottery.end_time,
@@ -82,16 +89,19 @@ pub mod lottery {
     }
 
     pub fn select_winner(ctx: Context<SelectWinner>, lottery_id: String) -> Result<()> {
-        msg!("Starting select_winner process...");
+        let lottery = &mut ctx.accounts.lottery;
         
         require!(
-            ctx.accounts.lottery.lottery_id == lottery_id,
+            lottery.lottery_id == lottery_id,
             LotteryError::InvalidLotteryId
         );
         msg!("Lottery ID verified");
 
-        let lottery = &mut ctx.accounts.lottery;
-        
+        // Calculate total prize before selecting winner
+        lottery.total_prize = lottery.entry_fee
+            .checked_mul(lottery.total_tickets as u64)
+            .ok_or(LotteryError::Overflow)?;
+
         // 1. Verify lottery has ended
         let current_time = Clock::get().unwrap().unix_timestamp;
         msg!("Current time: {}, End time: {}", current_time, lottery.end_time);
@@ -143,8 +153,10 @@ pub mod lottery {
 
         let winner_pubkey = lottery.participants[winner_index];
         lottery.winner = Some(winner_pubkey);
+        lottery.status = LotteryStatus::WinnerSelected;
 
         msg!("Winner successfully selected: {:?}", winner_pubkey);
+        msg!("Total prize pool: {} lamports", lottery.total_prize);
         msg!("Winner index: {}", winner_index);
         msg!("Total participants: {}", lottery.total_tickets);
 
@@ -152,56 +164,71 @@ pub mod lottery {
     }
 
     pub fn claim_prize(ctx: Context<ClaimPrize>, lottery_id: String) -> Result<()> {
-        // Add lottery ID verification
+        let lottery_info = ctx.accounts.lottery.to_account_info();
+        let lottery = &mut ctx.accounts.lottery;
+        
         require!(
-            ctx.accounts.lottery.lottery_id == lottery_id,
+            lottery.lottery_id == lottery_id,
             LotteryError::InvalidLotteryId
         );
         
         require!(
-            Some(ctx.accounts.player.key()) == ctx.accounts.lottery.winner,
+            Some(ctx.accounts.player.key()) == lottery.winner,
             LotteryError::NotWinner
         );
 
-        let total_collected = ctx.accounts.lottery.entry_fee
-            .checked_mul(ctx.accounts.lottery.total_tickets as u64)
-            .ok_or(LotteryError::Overflow)?;
+        let total_collected = lottery.total_prize;
         
+        // Winner gets 85% of the pool
         let prize_amount = total_collected
-            .checked_mul(90)
+            .checked_mul(85)
             .ok_or(LotteryError::Overflow)?
             .checked_div(100)
             .ok_or(LotteryError::Overflow)?;
 
-        // Developer gets 10% of the total pool
+        // Creator gets 5% of the pool
+        let creator_share = total_collected
+            .checked_mul(5)
+            .ok_or(LotteryError::Overflow)?
+            .checked_div(100)
+            .ok_or(LotteryError::Overflow)?;
+
+        // Developer gets 10% of the pool
         let developer_share = total_collected
             .checked_mul(10)
             .ok_or(LotteryError::Overflow)?
             .checked_div(100)
             .ok_or(LotteryError::Overflow)?;
 
+        // Transfer creator's share
+        **lottery_info.try_borrow_mut_lamports()? -= creator_share;
+        **ctx.accounts.creator.try_borrow_mut_lamports()? += creator_share;
+
         // Transfer developer's share
-        **ctx.accounts.lottery.to_account_info().try_borrow_mut_lamports()? -= developer_share;
+        **lottery_info.try_borrow_mut_lamports()? -= developer_share;
         **ctx.accounts.developer.to_account_info().try_borrow_mut_lamports()? += developer_share;
 
-        // Transfer prize to the winner (90% of the pool)
-        **ctx.accounts.lottery.to_account_info().try_borrow_mut_lamports()? -= prize_amount;
+        // Transfer prize to the winner
+        **lottery_info.try_borrow_mut_lamports()? -= prize_amount;
         **ctx.accounts.player.to_account_info().try_borrow_mut_lamports()? += prize_amount;
 
         // Reset lottery state after prize claim
-        let lottery = &mut ctx.accounts.lottery;
         lottery.total_tickets = 0;
-        lottery.participants.clear();  // Clear participants list
-        lottery.index = 0;  // Reset participant index
+        lottery.participants.clear();
+        lottery.index = 0;
         lottery.winner = None;
+        lottery.status = LotteryStatus::Completed;
+        lottery.total_prize = 0;
 
         msg!(
-            "Final balances - Winner: {} lamports, Developer: {} lamports, Pool: {} lamports",
+            "Final balances - Winner: {} lamports, Creator: {} lamports, Developer: {} lamports, Pool: {} lamports",
             ctx.accounts.player.lamports(),
+            ctx.accounts.creator.lamports(),
             ctx.accounts.developer.lamports(),
             ctx.accounts.lottery.to_account_info().lamports()
         );
         msg!("Prize of {} lamports claimed by: {:?}", prize_amount, ctx.accounts.player.key());
+        msg!("Creator share of {} lamports transferred.", creator_share);
         msg!("Developer share of {} lamports transferred.", developer_share);
         msg!("Lottery has been reset for the next round");
         Ok(())
@@ -228,21 +255,32 @@ pub mod lottery {
 }
 
 // === LotteryState Struct Definition ===
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Debug)]
+pub enum LotteryStatus {
+    Active,
+    EndedWaitingForWinner,
+    WinnerSelected,
+    Completed,
+}
+
 #[account]
 pub struct LotteryState {
     pub lottery_id: String,
     pub admin: Pubkey,
+    pub creator: Pubkey,
     pub entry_fee: u64,
     pub total_tickets: u32,
-    pub participants: Vec<Pubkey>,  // Use a vector for fixed participants
+    pub participants: Vec<Pubkey>,
     pub end_time: i64,
     pub winner: Option<Pubkey>,
-    pub randomness_account: Option<Pubkey>, // Added to store randomness account
-    pub index: u32,  // Track the next index to use for participants
+    pub randomness_account: Option<Pubkey>,
+    pub index: u32,
+    pub status: LotteryStatus,
+    pub total_prize: u64,
 }
 
 impl LotteryState {
-    const LEN: usize = 4 + 32 + 32 + 8 + 4 + (4 * MAX_PARTICIPANTS as usize) + 8 + 1 + 32 + 1 + 32 + 4; // Adjusted for vector of participants
+    const LEN: usize = 4 + 32 + 32 + 32 + 8 + 4 + (4 * MAX_PARTICIPANTS as usize) + 8 + 1 + 32 + 1 + 32 + 4 + 1 + 8;
 }
 
 // === Context Structs ===
@@ -305,8 +343,11 @@ pub struct ClaimPrize<'info> {
     pub lottery: Account<'info, LotteryState>,
     #[account(mut)]
     pub player: Signer<'info>,
+    /// CHECK: Creator account that receives 5% of the prize
+    #[account(mut, constraint = lottery.creator == creator.key())]
+    pub creator: AccountInfo<'info>,
     #[account(mut)]
-    pub developer: Signer<'info>, // Account for the developer's share
+    pub developer: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -355,4 +396,6 @@ pub enum LotteryError {
     InvalidWinnerIndex,
     #[msg("Invalid lottery ID")]
     InvalidLotteryId,
+    #[msg("Lottery creator cannot participate in their own lottery")]
+    CreatorCannotParticipate,
 }

@@ -1,18 +1,23 @@
 import { useEffect, useState } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
+import { useInterval } from 'react-use';
+import * as anchor from '@coral-xyz/anchor';
 
 interface LotteryState {
   lotteryId: string;
-  status: 'pending' | 'completed';
+  status: 'pending' | 'completed' | 'finalized';
   processing?: boolean;
   participants?: number;
   winner?: string;
   prizeAmount?: number;
+  creator?: string;
 }
 
 export function AccountLotteryPrizes({ address }: { address: PublicKey }) {
-  const { publicKey } = useWallet();
+  const wallet = useWallet()
+
+  const { connection } = useConnection()
   const [lotteries, setLotteries] = useState<LotteryState[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingLotteryId, setProcessingLotteryId] = useState<string | null>(null);
@@ -20,6 +25,7 @@ export function AccountLotteryPrizes({ address }: { address: PublicKey }) {
   const [error, setError] = useState<string | null>(null);
   const [allLotteries, setAllLotteries] = useState<LotteryState[]>([]);
   const [tableLoading, setTableLoading] = useState(true);
+  const POLL_INTERVAL = 100000; // 100 seconds
 
   const fetchLotteries = async () => {
     try {
@@ -44,6 +50,8 @@ export function AccountLotteryPrizes({ address }: { address: PublicKey }) {
       setLoading(false);
     }
   };
+
+
 
   const fetchAllLotteries = async () => {
     try {
@@ -98,22 +106,58 @@ export function AccountLotteryPrizes({ address }: { address: PublicKey }) {
     }
   };  
 
-  const claimPrize = async (lotteryId: string) => {
+  const claimPrize = async (lotteryId: string, creator: PublicKey) => {
     try {
+      if (!wallet.publicKey || !wallet.signTransaction) {
+        throw new Error('Wallet not connected');
+      }
       setClaimingLotteryId(lotteryId);
       setError(null);
 
-      const response = await fetch('/api/lotteryV2', {
+      const response = await fetch('/api/collectPrize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'claimPrize',
-          params: { lotteryId, participant: { publicKey: address.toString() } },
+          action: 'collectPrize',
+          params: { 
+            lotteryId, 
+            participant: { publicKey: address.toString() },
+            creator: creator.toString()
+          },
         }),
       });
 
       if (!response.ok) {
         throw new Error('Failed to claim prize');
+      }
+
+      const { transaction: serializedTransaction } = await response.json();
+      
+      // Deserialize and sign the partially signed transaction
+      const transaction = anchor.web3.VersionedTransaction.deserialize(
+        Buffer.from(serializedTransaction)
+      );
+      
+      // Player signs the admin-signed transaction
+      const signed = await wallet.signTransaction(transaction);
+      
+      // Send the fully signed transaction
+      const signature = await connection.sendRawTransaction(signed.serialize());
+      
+      await connection.confirmTransaction(signature);
+
+      // Update lottery status to finalized
+      const finalizeResponse = await fetch('/api/finalizeLottery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lotteryId,
+          signature, // Include signature as proof of successful claim
+        }),
+      });
+
+      if (!finalizeResponse.ok) {
+        console.warn('Failed to mark lottery as finalized');
       }
 
       await fetchLotteries();
@@ -125,12 +169,92 @@ export function AccountLotteryPrizes({ address }: { address: PublicKey }) {
     }
   };
 
+  const checkAndProcessPendingLotteries = async () => {
+    try {
+      const response = await fetch('/api/findEndedLotteries', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch lotteries');
+      }
+
+      const data = await response.json();
+      const pendingLotteries = data.lotteries?.filter(
+        (lottery: LotteryState) => lottery.status === 'pending' && !lottery.processing
+      );
+
+      for (const lottery of pendingLotteries) {
+        await processLottery(lottery.lotteryId);
+      }
+    } catch (err) {
+      console.error('Error checking pending lotteries:', err);
+    }
+  };
+
+  useInterval(() => {
+    if (wallet.publicKey) {
+      checkAndProcessPendingLotteries();
+    }
+  }, POLL_INTERVAL);
+
+  const renderTableRow = (lottery: LotteryState) => (
+    <tr key={`table-${lottery.lotteryId}`} className="hover:bg-base-300">
+      <td className="whitespace-nowrap max-w-[4rem] truncate">
+        {lottery.lotteryId}
+      </td>
+      <td className="whitespace-nowrap max-w-[4rem] truncate">
+        {lottery.participants || 0}
+      </td>
+      <td className="whitespace-nowrap max-w-[6rem] truncate">
+        {lottery.prizeAmount ? `${lottery.prizeAmount} SOL` : 'N/A'}
+      </td>
+      <td className="whitespace-nowrap max-w-[8rem] truncate hidden md:table-cell font-mono">
+        {lottery.winner 
+          ? `${lottery.winner.slice(0, 4)}...${lottery.winner.slice(-4)}` 
+          : 'Pending'}
+      </td>
+      <td className="whitespace-nowrap hidden md:table-cell">
+        {lottery.creator}
+      </td>
+      <td className="whitespace-nowrap">
+        {lottery.status === 'completed' && 
+         lottery.winner === address.toString() ? (
+          <button
+            className="btn btn-xs btn-primary"
+            onClick={() => lottery.creator ? claimPrize(lottery.lotteryId, new PublicKey(lottery.creator)) : null}
+            disabled={claimingLotteryId === lottery.lotteryId || !lottery.creator}
+          >
+            {claimingLotteryId === lottery.lotteryId ? (
+              <span className="loading loading-spinner loading-xs"></span>
+            ) : (
+              'Claim'
+            )}
+          </button>
+        ) : (
+          <span className={`badge truncate ${
+            lottery.processing 
+              ? 'badge-warning' 
+              : lottery.status === 'finalized'
+                ? 'badge-neutral'
+                : lottery.status === 'completed' 
+                  ? 'badge-success' 
+                  : 'badge-info'
+          }`}>
+            {lottery.processing ? 'Processing...' : lottery.status}
+          </span>
+        )}
+      </td>
+    </tr>
+  );
+
   useEffect(() => {
-    if (publicKey) {
+    if (wallet.publicKey) {
       fetchLotteries();
       fetchAllLotteries();
     }
-  }, [publicKey]);
+  }, [wallet.publicKey]);
 
   if (loading) {
     return (
@@ -167,41 +291,14 @@ export function AccountLotteryPrizes({ address }: { address: PublicKey }) {
                     <th className="whitespace-nowrap">Players</th>
                     <th className="whitespace-nowrap">Prize</th>
                     <th className="whitespace-nowrap hidden md:table-cell">Winner</th>
+                    <th className="whitespace-nowrap hidden md:table-cell">Creator</th>
                     <th className="whitespace-nowrap">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {allLotteries
                     .sort((a, b) => Number(b.lotteryId) - Number(a.lotteryId))
-                    .map(lottery => (
-                      <tr key={`table-${lottery.lotteryId}`} className="hover:bg-base-300">
-                        <td className="whitespace-nowrap max-w-[4rem] truncate">
-                          {lottery.lotteryId}
-                        </td>
-                        <td className="whitespace-nowrap max-w-[4rem] truncate">
-                          {lottery.participants || 0}
-                        </td>
-                        <td className="whitespace-nowrap max-w-[6rem] truncate">
-                          {lottery.prizeAmount ? `${lottery.prizeAmount} SOL` : 'N/A'}
-                        </td>
-                        <td className="whitespace-nowrap max-w-[8rem] truncate hidden md:table-cell font-mono">
-                          {lottery.winner 
-                            ? `${lottery.winner.slice(0, 4)}...${lottery.winner.slice(-4)}` 
-                            : 'Pending'}
-                        </td>
-                        <td className="whitespace-nowrap max-w-[6rem]">
-                          <span className={`badge truncate ${
-                            lottery.processing 
-                              ? 'badge-warning' 
-                              : lottery.status === 'completed' 
-                                ? 'badge-success' 
-                                : 'badge-info'
-                          }`}>
-                            {lottery.processing ? 'Processing...' : lottery.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    .map(lottery => renderTableRow(lottery))}
                 </tbody>
               </table>
             </div>
@@ -210,53 +307,6 @@ export function AccountLotteryPrizes({ address }: { address: PublicKey }) {
           )}
         </div>
       </div>
-
-      {lotteries.length > 0 ? (
-        <div className="space-y-4">
-          {lotteries.map((lottery) => (
-            <div key={lottery.lotteryId} className="card bg-base-200">
-              <div className="card-body">
-                <h3 className="card-title">Lottery #{lottery.lotteryId}</h3>
-                <div className="space-y-2">
-                  <p>Status: {lottery.processing ? 'Processing...' : lottery.status}</p>
-                </div>
-                {lottery.status === 'pending' && !lottery.processing && (
-                  <div className="card-actions justify-end">
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() => processLottery(lottery.lotteryId)}
-                      disabled={processingLotteryId === lottery.lotteryId}
-                    >
-                      {processingLotteryId === lottery.lotteryId ? (
-                        <span className="loading loading-spinner"></span>
-                      ) : (
-                        'Select Winner'
-                      )}
-                    </button>
-                  </div>
-                )}
-                {lottery.status === 'completed' && (
-                  <div className="card-actions justify-end">
-                    <button
-                      className="btn btn-primary"
-                      onClick={() => claimPrize(lottery.lotteryId)}
-                      disabled={claimingLotteryId === lottery.lotteryId}
-                    >
-                      {claimingLotteryId === lottery.lotteryId ? (
-                        <span className="loading loading-spinner"></span>
-                      ) : (
-                        'Claim Prize'
-                      )}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="alert">No lotteries found</div>
-      )}
     </div>
   );
 }

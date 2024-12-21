@@ -7,12 +7,10 @@ import { Connection, LAMPORTS_PER_SOL, PublicKey, SystemProgram, TransactionMess
 import { Button } from '@/components/ui/button'
 import * as anchor from "@coral-xyz/anchor"
 
-// Constants
-const PROGRAM_ID = new PublicKey('AxL3SAtyAEDWHopxCwC7FmV7LxzhXgZjpfpVyUvLwRhX')
-
 interface LotteryState {
   lotteryId: string
   admin: PublicKey
+  creator: PublicKey
   entryFee: anchor.BN
   totalTickets: number
   participants: PublicKey[]
@@ -28,14 +26,15 @@ interface LotteryListItem {
 type LotteryProgram = anchor.Program<anchor.Idl> & {
   account: {
     lotteryState: {
-      fetch(address: PublicKey): Promise<any>;
-      all(): Promise<any[]>;
+      fetch(address: PublicKey): Promise<LotteryState>;
+      all(): Promise<{ publicKey: PublicKey; account: LotteryState }[]>;
     }
   }
 }
 
 // Move getProgram outside the component or memoize it inside
-const getProgram = (connection: Connection, wallet: WalletContextState): Promise<LotteryProgram> => {
+const getProgram = async (connection: Connection, wallet: WalletContextState, PROGRAM_ID: PublicKey): Promise<LotteryProgram> => {
+  if (!PROGRAM_ID) throw new Error("Program ID not initialized")
   const provider = new anchor.AnchorProvider(
     connection,
     {
@@ -46,13 +45,11 @@ const getProgram = (connection: Connection, wallet: WalletContextState): Promise
     { commitment: 'confirmed' }
   )
   anchor.setProvider(provider)
-  
+
   // Fetch IDL from chain
-  return anchor.Program.fetchIdl(PROGRAM_ID, provider)
-    .then(idl => {
-      if (!idl) throw new Error("IDL not found")
-      return new anchor.Program(idl, provider) as LotteryProgram
-    })
+  const idl = await anchor.Program.fetchIdl(PROGRAM_ID, provider)
+  if (!idl) throw new Error("IDL not found")
+  return new anchor.Program(idl, provider) as LotteryProgram
 }
 
 export default function DashboardFeature() {
@@ -69,14 +66,35 @@ export default function DashboardFeature() {
     duration: '3600'
   })
   const [selectedLotteryId, setSelectedLotteryId] = useState<string | null>(null)
+  const [PROGRAM_ID, setPROGRAM_ID] = useState<PublicKey | null>(null)
+  // Add this effect at the component level (inside DashboardFeature)
+  useEffect(() => {
+    const fetchProgramId = async () => {
+      try {
+        const response = await fetch('/api/getProgramId')
+        if (!response.ok) throw new Error('Failed to fetch program ID')
+        const { programId } = await response.json()
+        setPROGRAM_ID(new PublicKey(programId))
+      } catch (err) {
+        console.error('Failed to fetch program ID:', err)
+        setError('Failed to fetch program ID')
+      }
+    }
+
+    fetchProgramId()
+  }, [])
 
   // Memoize the getProgram function
   const memoizedGetProgram = useCallback(
-    () => getProgram(connection, wallet),
-    [connection, wallet]
-  )
+    () => {
+      if (!PROGRAM_ID) throw new Error("Program ID not initialized");
+      return getProgram(connection, wallet, PROGRAM_ID);
+    },
+    [connection, wallet, PROGRAM_ID]
+  );
 
   const getLotteryPDA = (lotteryId: string) => {
+    if (!PROGRAM_ID) throw new Error("Program ID not initialized")
     const [lotteryPDA] = PublicKey.findProgramAddressSync(
       [Buffer.from("lottery"), Buffer.from(lotteryId)],
       PROGRAM_ID
@@ -86,36 +104,42 @@ export default function DashboardFeature() {
 
   // Function to fetch lottery state
   const fetchLotteryState = useCallback(async () => {
-    if (!wallet.publicKey || !selectedLotteryId) return
-    
+    if (!wallet.publicKey || !selectedLotteryId || !PROGRAM_ID) return;
+
     try {
-      setLoading(true)
-      const program = await memoizedGetProgram()
-      const lotteryPDA = getLotteryPDA(selectedLotteryId)
-      
-      const account = await program.account.lotteryState.fetch(lotteryPDA)
-      setLotteryState(account as LotteryState)
+      setLoading(true);
+      const program = await memoizedGetProgram();
+      const lotteryPDA = getLotteryPDA(selectedLotteryId);
+
+      const account = await program.account.lotteryState.fetch(lotteryPDA);
+      setLotteryState(account as LotteryState);
     } catch (err) {
-      console.error('Failed to fetch lottery state:', err)
-      setError('Failed to fetch lottery state')
+      console.error('Failed to fetch lottery state:', err);
+      setError('Failed to fetch lottery state');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [wallet.publicKey, selectedLotteryId, memoizedGetProgram])
+  }, [wallet.publicKey, selectedLotteryId, PROGRAM_ID, memoizedGetProgram]);
 
   // Buy ticket function
   const buyTicket = async () => {
     if (!wallet.publicKey || !lotteryState || !wallet.signTransaction || !selectedLotteryId) return
-    
+
     try {
+      // Check if buyer is the creator
+      if (wallet.publicKey.equals(lotteryState.creator)) {
+        setError('Lottery creators cannot buy tickets to their own lottery');
+        return;
+      }
+
       const currentTime = Math.floor(Date.now() / 1000)
       const endTime = lotteryState.endTime.toNumber()
-      
+
       if (currentTime >= endTime) {
         setError('This lottery has ended')
         return
       }
-      
+
       setLoading(true)
       const program = await memoizedGetProgram()
       const lotteryPDA = getLotteryPDA(selectedLotteryId)
@@ -144,7 +168,7 @@ export default function DashboardFeature() {
       }).compileToV0Message()
 
       const transaction = new VersionedTransaction(messageV0)
-      
+
       const signed = await wallet.signTransaction(transaction)
       const signature = await connection.sendTransaction(signed)
       await connection.confirmTransaction({
@@ -152,7 +176,7 @@ export default function DashboardFeature() {
         blockhash: latestBlockhash.blockhash,
         lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
       })
-      
+
       await fetchLotteryState()
     } catch (err: any) {
       console.error('Failed to buy ticket:', err)
@@ -172,7 +196,7 @@ export default function DashboardFeature() {
   // Claim prize function
   const claimPrize = async () => {
     if (!wallet.publicKey || !lotteryState || !wallet.signTransaction || !selectedLotteryId) return
-    
+
     try {
       setLoading(true)
       const program = await memoizedGetProgram()
@@ -183,6 +207,7 @@ export default function DashboardFeature() {
         .accounts({
           lottery: lotteryPDA,
           player: wallet.publicKey,
+          creator: lotteryState.creator,
           developer: wallet.publicKey,
           systemProgram: SystemProgram.programId,
         })
@@ -196,7 +221,7 @@ export default function DashboardFeature() {
       }).compileToV0Message()
 
       const transaction = new VersionedTransaction(messageV0)
-      
+
       const signed = await wallet.signTransaction(transaction)
       const signature = await connection.sendTransaction(signed)
       await connection.confirmTransaction({
@@ -204,7 +229,7 @@ export default function DashboardFeature() {
         blockhash: latestBlockhash.blockhash,
         lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
       })
-      
+
       await fetchLotteryState()
     } catch (err) {
       console.error('Failed to claim prize:', err)
@@ -216,14 +241,14 @@ export default function DashboardFeature() {
 
   // Update the fetchAllLotteries callback
   const fetchAllLotteries = useCallback(async () => {
-    if (!wallet.publicKey) return
-    
+    if (!wallet.publicKey || !PROGRAM_ID) return;
+
     try {
-      setLoading(true)
-      const program = await memoizedGetProgram()
-      
-      const accounts = await program.account.lotteryState.all()
-      
+      setLoading(true);
+      const program = await memoizedGetProgram();
+
+      const accounts = await program.account.lotteryState.all();
+
       const activeLotteries = accounts
         .map(({ publicKey, account }: { publicKey: PublicKey; account: any }) => ({
           publicKey,
@@ -233,7 +258,7 @@ export default function DashboardFeature() {
           const endTime = lottery.account.endTime.toNumber() * 1000
           return endTime > Date.now() && !lottery.account.winner
         })
-        
+
       setAllLotteries(activeLotteries)
     } catch (err) {
       console.error('Failed to fetch lotteries:', err)
@@ -241,7 +266,7 @@ export default function DashboardFeature() {
     } finally {
       setLoading(false)
     }
-  }, [wallet.publicKey, memoizedGetProgram])
+  }, [wallet.publicKey, PROGRAM_ID, memoizedGetProgram]);
 
   useEffect(() => {
     if (wallet.publicKey) {
@@ -249,7 +274,7 @@ export default function DashboardFeature() {
       const fetchData = async () => {
         await fetchAllLotteries()
       }
-      
+
       fetchData() // Call it immediately
       const interval = setInterval(fetchData, 10000) // Use the same async function for interval
       return () => clearInterval(interval)
@@ -262,71 +287,46 @@ export default function DashboardFeature() {
     }
   }, [selectedLotteryId, fetchLotteryState])
 
-  const timeRemaining = lotteryState ? 
+  const timeRemaining = lotteryState ?
     new Date(lotteryState.endTime.toNumber() * 1000).getTime() - Date.now() : 0
   const isEnded = timeRemaining <= 0
 
   const createLottery = async () => {
-    if (!wallet.publicKey || !wallet.signTransaction) return
+    if (!wallet.publicKey) return
     if (!newLotteryData.name.trim()) {
       setError('Please enter a lottery name')
       return
     }
-    
+
     try {
       setLoading(true)
-      const program = await memoizedGetProgram()
-      
-      // Use the name as the lottery ID
-      const lotteryId = newLotteryData.name.trim()
-      
-      // Convert entry fee to lamports
-      const entryFee = new anchor.BN(
-        parseFloat(newLotteryData.entryFee) * LAMPORTS_PER_SOL
-      )
-      
-      // Calculate end time
-      const endTime = new anchor.BN(
-        Math.floor(Date.now() / 1000) + parseInt(newLotteryData.duration)
-      )
-      
-      // Get PDA for new lottery
-      const [lotteryPDA] = PublicKey.findProgramAddressSync(
-        [Buffer.from("lottery"), Buffer.from(lotteryId)],
-        PROGRAM_ID
-      )
 
-      const ix = await program.methods
-        .initialize(lotteryId, entryFee, endTime)
-        .accounts({
-          lottery: lotteryPDA,
-          admin: wallet.publicKey,
-          systemProgram: SystemProgram.programId,
+      const response = await fetch('/api/createLottery', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: newLotteryData.name.trim(),
+          entryFee: parseFloat(newLotteryData.entryFee),
+          duration: parseInt(newLotteryData.duration),
+          creator: wallet.publicKey.toString()
         })
-        .instruction()
-
-      const latestBlockhash = await connection.getLatestBlockhash()
-      const messageV0 = new TransactionMessage({
-        payerKey: wallet.publicKey,
-        recentBlockhash: latestBlockhash.blockhash,
-        instructions: [ix],
-      }).compileToV0Message()
-
-      const transaction = new VersionedTransaction(messageV0)
-      
-      const signed = await wallet.signTransaction(transaction)
-      const signature = await connection.sendTransaction(signed)
-      await connection.confirmTransaction({
-        signature,
-        blockhash: latestBlockhash.blockhash,
-        lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
       })
-      
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to create lottery')
+      }
+
+      const result = await response.json()
+      console.log('Lottery created:', result)
+
       setShowCreateForm(false)
       await fetchAllLotteries()
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to create lottery:', err)
-      setError('Failed to create lottery')
+      setError(err.message || 'Failed to create lottery')
     } finally {
       setLoading(false)
     }
@@ -362,8 +362,8 @@ export default function DashboardFeature() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
-      <AppHero 
-        title="Solana Lottery" 
+      <AppHero
+        title="Solana Lottery"
         subtitle={
           <div className="space-y-2">
             <p>Try your luck in our decentralized lottery system!</p>
@@ -373,13 +373,13 @@ export default function DashboardFeature() {
           </div>
         }
       />
-      
+
       {error && (
         <div className="max-w-2xl mx-auto my-4 p-4 bg-red-50 border border-red-200 rounded-md text-red-600">
           {error}
         </div>
       )}
-      
+
       {!wallet.publicKey ? (
         <div className="max-w-2xl mx-auto text-center py-12">
           <div className="bg-white rounded-xl shadow-md p-8">
@@ -397,7 +397,7 @@ export default function DashboardFeature() {
               <div className="p-6">
                 <div className="flex justify-between items-center mb-6">
                   <h2 className="text-2xl font-bold text-gray-900">Active Lotteries</h2>
-                  <Button 
+                  <Button
                     onClick={() => setShowCreateForm(true)}
                     className="bg-primary hover:bg-primary-dark"
                   >
@@ -410,13 +410,13 @@ export default function DashboardFeature() {
                       lottery.account.entryFee.toNumber(),
                       lottery.account.totalTickets
                     )
-                    
+
                     return (
-                      <div 
-                        key={lottery.publicKey.toString()} 
+                      <div
+                        key={lottery.publicKey.toString()}
                         className={`bg-white border rounded-lg p-4 cursor-pointer transition-all duration-200 
-                          ${selectedLotteryId === lottery.account.lotteryId 
-                            ? 'border-primary shadow-md ring-2 ring-primary ring-opacity-50' 
+                          ${selectedLotteryId === lottery.account.lotteryId
+                            ? 'border-primary shadow-md ring-2 ring-primary ring-opacity-50'
                             : 'border-gray-200 hover:border-primary hover:shadow-md'}`}
                         onClick={() => {
                           setSelectedLotteryId(lottery.account.lotteryId)
@@ -488,12 +488,22 @@ export default function DashboardFeature() {
                     <span className="text-gray-500">Time Remaining</span>
                     <CountdownTimer endTime={lotteryState.endTime.toNumber()} />
                   </div>
+                  <div className="flex justify-between items-center py-2 border-b">
+                    <span className="text-gray-500">Creator</span>
+                    <span className="font-mono text-sm">
+                      {`${lotteryState.creator.toString().slice(0, 4)}...${lotteryState.creator.toString().slice(-4)}`}
+                    </span>
+                  </div>
 
                   {wallet.publicKey && (
                     <div className="pt-4 space-y-3">
                       <Button
                         onClick={buyTicket}
-                        disabled={loading || Date.now() / 1000 > lotteryState.endTime.toNumber()}
+                        disabled={
+                          loading || 
+                          Date.now() / 1000 > lotteryState.endTime.toNumber() ||
+                          wallet.publicKey.equals(lotteryState.creator)
+                        }
                         className="w-full bg-gradient-to-r from-primary to-primary-dark hover:from-primary-dark hover:to-primary"
                       >
                         {loading ? (
@@ -501,9 +511,11 @@ export default function DashboardFeature() {
                             <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
                             Processing...
                           </div>
-                        ) : Date.now() / 1000 > lotteryState.endTime.toNumber() 
-                          ? 'Lottery Ended' 
-                          : `Buy Ticket for ${lotteryState.entryFee.toNumber() / LAMPORTS_PER_SOL} SOL`
+                        ) : Date.now() / 1000 > lotteryState.endTime.toNumber()
+                          ? 'Lottery Ended'
+                          : wallet.publicKey.equals(lotteryState.creator)
+                            ? 'Creators Cannot Buy Tickets to their own lottery'
+                            : `Buy Ticket for ${lotteryState.entryFee.toNumber() / LAMPORTS_PER_SOL} SOL`
                         }
                       </Button>
 

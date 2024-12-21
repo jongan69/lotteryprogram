@@ -11,6 +11,8 @@ const commitment = "confirmed";
 // Add at the top of the file
 interface LotteryState {
   lotteryId: string;
+  admin: PublicKey;
+  creator: PublicKey;
   entryFee: number;
   endTime: number;
   totalTickets: number;
@@ -153,14 +155,17 @@ async function createSelectWinnerInstruction(
 async function claimPrizeInstruction(
   lotteryProgram: anchor.Program,
   lotteryAccount: PublicKey,
-  keypair: Keypair
+  winner: Keypair,
+  creator: PublicKey,
+  developer: PublicKey
 ): Promise<anchor.web3.TransactionInstruction> {
   return await lotteryProgram.methods
     .claimPrize("lottery_1")
     .accounts({
       lottery: lotteryAccount,
-      player: keypair.publicKey,
-      developer: keypair.publicKey,
+      player: winner.publicKey,
+      creator: creator,
+      developer: developer,
       systemProgram: SystemProgram.programId,
     })
     .instruction();
@@ -452,7 +457,8 @@ describe("Lottery", () => {
           .initialize(
             "lottery_1",
             entryFee,
-            endTime
+            endTime,
+            keypair.publicKey
           )
           .accounts({
             lottery: lotteryAccount,
@@ -473,8 +479,8 @@ describe("Lottery", () => {
       // Step 5: Set up multiple players and ticket purchases
       console.log("\nStep 3: Setting up multiple ticket purchases...");
 
-      // Buy tickets for each participant
-      for (const participant of [keypair, participant1, participant2]) {
+      // Buy tickets for participants (excluding creator)
+      for (const participant of [participant1, participant2]) {  // Remove keypair from this array
         console.log(`\nBuying ticket for ${participant.publicKey.toString()}...`);
         const buyTicketIx = await lotteryProgram.methods
           .buyTicket("lottery_1")
@@ -499,6 +505,39 @@ describe("Lottery", () => {
         console.log(`Ticket purchased for ${participant.publicKey.toString()}`);
       }
 
+      // Add test to verify creator cannot participate
+      console.log("\nVerifying creator cannot participate...");
+      try {
+        const buyTicketIx = await lotteryProgram.methods
+          .buyTicket("lottery_1")
+          .accounts({
+            lottery: lotteryAccount,
+            player: keypair.publicKey,  // Creator trying to buy
+            systemProgram: SystemProgram.programId,
+          })
+          .instruction();
+
+        const buyTicketTx = await sb.asV0Tx({
+          connection: sbProgram.provider.connection,
+          ixs: [buyTicketIx],
+          payer: keypair.publicKey,
+          signers: [keypair],
+          computeUnitPrice: computeUnitPrice,
+          computeUnitLimitMultiple: computeUnitLimitMultiple,
+        });
+
+        const sig = await connection.sendTransaction(buyTicketTx, txOpts);
+        await confirmTx(connection, sig);
+        console.error("ERROR: Creator was able to buy a ticket!");
+      } catch (error) {
+        if (error.logs?.some(log => log.includes("CreatorCannotParticipate"))) {
+          console.log("✓ Successfully prevented creator from participating");
+        } else {
+          console.error("Unexpected error:", error);
+          throw error;
+        }
+      }
+
       // Log total participants
       const lotteryState: LotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
       console.log(`\nLottery Status:`);
@@ -511,7 +550,7 @@ describe("Lottery", () => {
         lotteryAccount,
         keypair.publicKey,
         [
-          { name: "Admin", pubkey: keypair.publicKey },
+          { name: "Admin/Creator/Developer", pubkey: keypair.publicKey },
           { name: "Participant 1", pubkey: participant1.publicKey },
           { name: "Participant 2", pubkey: participant2.publicKey }
         ]
@@ -616,7 +655,7 @@ describe("Lottery", () => {
           lotteryAccount,
           keypair.publicKey,
           [
-            { name: "Admin", pubkey: keypair.publicKey },
+            { name: "Admin/Creator/Developer", pubkey: keypair.publicKey },
             { name: "Participant 1", pubkey: participant1.publicKey },
             { name: "Participant 2", pubkey: participant2.publicKey }
           ]
@@ -662,31 +701,44 @@ describe("Lottery", () => {
         const claimPrizeIx = await claimPrizeInstruction(
           lotteryProgram,
           lotteryAccount,
-          winningKeypair  // Use winning keypair instead of default keypair
+          winningKeypair,
+          keypair.publicKey,  // creator
+          keypair.publicKey   // developer
         );
 
         const claimPrizeTx = await sb.asV0Tx({
           connection: sbProgram.provider.connection,
           ixs: [claimPrizeIx],
           payer: winningKeypair.publicKey,
-          signers: [winningKeypair],
+          signers: [winningKeypair, keypair],  // Include both winner and developer keypairs
           computeUnitPrice: computeUnitPrice,
           computeUnitLimitMultiple: computeUnitLimitMultiple,
         });
 
-        const sig4 = await connection.sendTransaction(claimPrizeTx, txOpts);
-        await confirmTx(connection, sig4);
-        console.log("Prize claimed successfully! Tx:", sig4);
-        await logBalances(
-          connection,
-          lotteryAccount,
-          keypair.publicKey,
-          [
-            { name: "Admin", pubkey: keypair.publicKey },
-            { name: "Participant 1", pubkey: participant1.publicKey },
-            { name: "Participant 2", pubkey: participant2.publicKey }
-          ]
-        );
+        // Add error handling for the claim prize transaction
+        try {
+          const sig4 = await connection.sendTransaction(claimPrizeTx, txOpts);
+          await confirmTx(connection, sig4);
+          console.log("Prize claimed successfully! Tx:", sig4);
+          
+          // Log final balances
+          await logBalances(
+            connection,
+            lotteryAccount,
+            keypair.publicKey,
+            [
+              { name: "Admin/Creator/Developer", pubkey: keypair.publicKey },
+              { name: "Participant 1", pubkey: participant1.publicKey },
+              { name: "Participant 2", pubkey: participant2.publicKey }
+            ]
+          );
+        } catch (error) {
+          console.error("Failed to claim prize:", error);
+          if (error.logs) {
+            console.error("Program logs:", error.logs);
+          }
+          throw error;
+        }
       } catch (error) {
         console.error("Failed to select winner:", error);
       }

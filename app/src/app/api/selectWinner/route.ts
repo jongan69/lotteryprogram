@@ -8,16 +8,13 @@ const PROGRAM_ID = new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID!);
 const RPC_URL = process.env.RPC_URL!;
 const ADMIN_KEY = process.env.ADMIN_KEY!;
 const COMMITMENT = "processed";
-const computeUnitPrice = 75_000;
-const computeUnitLimitMultiple = 1.3;
+const computeUnitPrice = 100_000_000;
+const computeUnitLimitMultiple = 2;
 
-type LotteryState = {
-    lotteryId: string;
-    entryFee: number;
-    endTime: number;
-    totalTickets: number;
-    participants: PublicKey[];
-    winner: PublicKey | null;
+const txOpts = {
+    commitment: "processed",  // Transaction commitment level
+    skipPreflight: false,                  // Skip preflight checks
+    maxRetries: 0,                          // Retry attempts for transaction
 };
 
 // Utility to confirm a transaction with retries
@@ -26,7 +23,7 @@ async function confirmTransaction(connection: Connection, signature: string) {
     const maxAttempts = 10;
     while (attempts < maxAttempts) {
         const status = await connection.getSignatureStatus(signature, { searchTransactionHistory: true });
-        if (status?.value?.confirmationStatus === "processed") {
+        if (status?.value?.confirmationStatus === "confirmed") {
             console.log(`Transaction confirmed: ${signature}`);
             return;
         }
@@ -37,18 +34,38 @@ async function confirmTransaction(connection: Connection, signature: string) {
     throw new Error(`Transaction not confirmed: ${signature}`);
 }
 
-async function loadSbProgram(provider: anchor.Provider) {
-    console.log("Loading Switchboard program...");
-    const sbProgramId = await sb.getProgramId(provider.connection);
-    console.log("Switchboard program ID:", sbProgramId.toString());
+async function createSelectWinnerInstruction(
+    lotteryProgram: anchor.Program,
+    lotteryAccount: PublicKey,
+    randomnessAccount: PublicKey,
+    lotteryId: string
+): Promise<anchor.web3.TransactionInstruction> {
+    return await lotteryProgram.methods
+        .selectWinner(lotteryId)
+        .accounts({
+            lottery: lotteryAccount,
+            randomnessAccountData: randomnessAccount,
+            systemProgram: SystemProgram.programId,
+        })
+        .instruction();
+}
 
-    console.log("Fetching program IDL...");
-    const sbIdl = await anchor.Program.fetchIdl(sbProgramId, provider);
-
-    if (!sbIdl) {
-        console.error("Failed to fetch Switchboard IDL");
-        throw new Error("IDL fetch failed");
+// Utility function to setup the Switchboard queue
+async function setupQueue(program: anchor.Program): Promise<PublicKey> {
+    const queueAccount = await sb.getDefaultQueue(
+        program.provider.connection.rpcEndpoint
+    );
+    console.log("Queue account found:", queueAccount.pubkey.toString());
+    try {
+        console.log("Loading queue data...");
+        await queueAccount.loadData();
+        console.log("Queue data loaded successfully");
+    } catch (err) {
+        console.error("Error loading queue data:", err);
+        console.error("Queue not found, ensure you are using devnet in your env");
+        process.exit(1);
     }
+    return queueAccount.pubkey;
 }
 
 // API Endpoint
@@ -77,18 +94,35 @@ export async function POST(request: Request) {
             signAllTransactions: (txs: any[]) => Promise.all(txs.map(tx => tx.sign([adminKeypair]))),
         };
         const provider = new anchor.AnchorProvider(connection, wallet, {
-            commitment: 'confirmed'
+            commitment: COMMITMENT
         });
         const idl = await anchor.Program.fetchIdl(PROGRAM_ID, provider);
         if (!idl) throw new Error("IDL not found for program");
         // Create the program instance correctly
-        const lotteryProgram = new anchor.Program(idl, provider);
+        console.log("IDL:", idl);
+        let lotteryProgram: any;
+        try {
+            const idl = await anchor.Program.fetchIdl(PROGRAM_ID, provider);
+            if (!idl) {
+                throw new Error("IDL not found for program");
+            }
+
+            lotteryProgram = new anchor.Program(
+                idl,
+                provider
+            );
+        } catch (error) {
+            console.error("Error initializing lottery program:", error);
+            throw error;
+        }
+        console.log(lotteryProgram);
         console.log("Lottery Program:", lotteryProgram.programId.toString());
         const sbProgramId = await sb.getProgramId(connection);
 
         const sbIdl = await anchor.Program.fetchIdl(sbProgramId, provider);
         if (!sbIdl) throw new Error("IDL not found for program");
         const sbProgram = new anchor.Program(sbIdl, provider);
+        // console.log("Available account namespaces:", Object.keys(lotteryProgram.account));
 
         // Derive Lottery PDA and fetch state
         const [lotteryAccount] = PublicKey.findProgramAddressSync(
@@ -97,9 +131,7 @@ export async function POST(request: Request) {
         );
 
         // Fetch lottery state using the correct method
-        const lotteryState = await (lotteryProgram.account as any).lottery.fetch(
-            lotteryAccount
-        ) as LotteryState;
+        const lotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
 
         if (!lotteryState.participants || lotteryState.participants.length === 0) {
             throw new Error("No participants found in the lottery");
@@ -107,28 +139,24 @@ export async function POST(request: Request) {
 
         // Create randomness account
         const rngKeypair = Keypair.generate();
-        const queue = await sb.getDefaultQueue(RPC_URL);
-        console.log("Queue:", queue.pubkey.toString());
-        const [randomnessAccount, createRandomnessIx] = await sb.Randomness.create(sbProgram, rngKeypair, queue.pubkey);
+        // const programKeypair = Keypair.fromSecretKey(bs58.decode(PROGRAM_KEY));
+        let queue = await setupQueue(sbProgram);
+        console.log("Queue:", queue.toString());
+        const [randomnessAccount, createRandomnessIx] = await sb.Randomness.create(sbProgram, rngKeypair, queue);
 
         // Create and send randomness initialization transaction
         const createRandomnessTx = await sb.asV0Tx({
-            connection,
+            connection: sbProgram.provider.connection,
             ixs: [createRandomnessIx],
             payer: adminKeypair.publicKey,
             signers: [adminKeypair, rngKeypair],
-            computeUnitPrice,
-            computeUnitLimitMultiple,
         });
-        const randomnessSig = await connection.sendTransaction(createRandomnessTx, {
-            skipPreflight: true,
-            preflightCommitment: COMMITMENT,
-        });
+        const randomnessSig = await connection.sendTransaction(createRandomnessTx, txOpts);
         console.log("Randomness Transaction Signature:", randomnessSig);
         await confirmTransaction(connection, randomnessSig);
 
         // Commit randomness
-        const commitIx = await randomnessAccount.commitIx(queue.pubkey);
+        const commitIx = await randomnessAccount.commitIx(queue);
         const commitTx = await sb.asV0Tx({
             connection,
             ixs: [commitIx],
@@ -137,23 +165,18 @@ export async function POST(request: Request) {
             computeUnitPrice,
             computeUnitLimitMultiple,
         });
-        const commitSig = await connection.sendTransaction(commitTx, {
-            skipPreflight: true,
-            preflightCommitment: COMMITMENT,
-        });
+        const commitSig = await connection.sendTransaction(commitTx, txOpts);
         console.log("Randomness Commit Signature:", commitSig);
         await confirmTransaction(connection, commitSig);
 
         // Reveal randomness and select winner
         const revealIx = await randomnessAccount.revealIx();
-        const selectWinnerIx = await lotteryProgram.methods
-            .selectWinner(lotteryId)
-            .accounts({
-                lottery: lotteryAccount,
-                randomnessAccountData: randomnessAccount,
-                systemProgram: SystemProgram.programId,
-            })
-            .instruction();
+        const selectWinnerIx = await createSelectWinnerInstruction(
+            lotteryProgram,
+            lotteryAccount,
+            randomnessAccount.pubkey,
+            lotteryId
+        );
 
         const revealTx = await sb.asV0Tx({
             connection,
@@ -163,14 +186,13 @@ export async function POST(request: Request) {
             computeUnitPrice,
             computeUnitLimitMultiple,
         });
-        const revealSig = await connection.sendTransaction(revealTx, {
-            skipPreflight: true,
-            preflightCommitment: COMMITMENT,
-        });
+        const revealSig = await connection.sendTransaction(revealTx, txOpts);
         console.log("Reveal and Select Winner Signature:", revealSig);
         await confirmTransaction(connection, revealSig);
 
         console.log("Winner selected successfully");
+        console.log("Available accounts:", Object.keys(lotteryProgram.account));
+        console.log("Lottery account address:", lotteryAccount.toString());
         return NextResponse.json({ success: true, transaction: revealSig });
     } catch (error: any) {
         console.error("Error in selectWinner:", error);

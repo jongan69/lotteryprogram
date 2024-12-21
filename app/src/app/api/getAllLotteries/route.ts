@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import * as anchor from '@coral-xyz/anchor';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
-import * as sb from '@switchboard-xyz/on-demand';
 import bs58 from 'bs58';
 
 const PROGRAM_ID = process.env.NEXT_PUBLIC_PROGRAM_ID
@@ -60,7 +59,8 @@ export async function GET() {
         // Filter for processable lotteries
         const processableLotteries = lotteryAccounts.filter(({ account }) => {
             const hasEnded = account.endTime * 1000 < Date.now();
-            return hasEnded;
+            const hasParticipants = account.participants.length > 0;
+            return hasEnded && hasParticipants;
         });
 
         console.log(`All lotteries found: ${lotteryAccounts.length}`);

@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import * as anchor from '@coral-xyz/anchor';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
-import * as sb from '@switchboard-xyz/on-demand';
 import bs58 from 'bs58';
 
 const PROGRAM_ID = process.env.NEXT_PUBLIC_PROGRAM_ID
