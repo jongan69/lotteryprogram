@@ -23,9 +23,18 @@ let clientPromise: Promise<MongoClient>;
 async function getMongoClient() {
     if (!clientPromise) {
         clientPromise = MongoClient.connect(MONGODB_URI, {
+            maxPoolSize: 10,
+            minPoolSize: 1,
+            maxIdleTimeMS: 120000,
+            connectTimeoutMS: 30000,
+            socketTimeoutMS: 360000,
+            serverSelectionTimeoutMS: 30000,
+            retryWrites: true,
+            retryReads: true,
             monitorCommands: true,
-            serverSelectionTimeoutMS: 5000, // Adjust the timeout as needed
-            socketTimeoutMS: 45000, // Adjust the socket timeout as needed
+            heartbeatFrequencyMS: 10000,
+            minHeartbeatFrequencyMS: 500,
+            loadBalanced: false,
         });
     }
     return clientPromise;
