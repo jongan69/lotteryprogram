@@ -12,7 +12,7 @@ export async function POST(request: Request) {
   try {
     // Parse the request body
     const body = await request.json()
-    const { name, entryFee, duration } = body
+    const { name, entryFee, duration, creator } = body
 
     // Validate inputs
     if (!name || !entryFee || !duration) {
@@ -83,7 +83,7 @@ export async function POST(request: Request) {
         name,
         entryFeeLamports,
         endTime,
-        adminKeypair.publicKey
+        creator
       )
       .accounts({
         lottery: lotteryPDA,

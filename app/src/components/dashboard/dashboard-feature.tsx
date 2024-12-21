@@ -287,10 +287,6 @@ export default function DashboardFeature() {
     }
   }, [selectedLotteryId, fetchLotteryState])
 
-  const timeRemaining = lotteryState ?
-    new Date(lotteryState.endTime.toNumber() * 1000).getTime() - Date.now() : 0
-  const isEnded = timeRemaining <= 0
-
   const createLottery = async () => {
     if (!wallet.publicKey) return
     if (!newLotteryData.name.trim()) {
