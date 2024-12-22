@@ -88,18 +88,18 @@ export default function DashboardFeature() {
   }, [wallet.publicKey, selectedLotteryId, PROGRAM_ID, memoizedGetProgram]);
 
   // Buy ticket function
-  const buyTicket = async () => {
-    if (!wallet.publicKey || !lotteryState || !wallet.signTransaction || !selectedLotteryId || !PROGRAM_ID) return
+  const buyTicket = async (lotteryStateToUse: Lottery) => {
+    if (!wallet.publicKey || !wallet.signTransaction || !selectedLotteryId || !PROGRAM_ID) return
 
     try {
       // Check if buyer is the creator
-      if (wallet.publicKey.equals(lotteryState.creator)) {
+      if (wallet.publicKey.equals(lotteryStateToUse.creator)) {
         setError('Lottery creators cannot buy tickets to their own lottery');
         return;
       }
 
       const currentTime = Math.floor(Date.now() / 1000)
-      const endTime = lotteryState.endTime.toNumber()
+      const endTime = lotteryStateToUse.endTime.toNumber()
 
       if (currentTime >= endTime) {
         setError('This lottery has ended')
@@ -155,7 +155,7 @@ export default function DashboardFeature() {
 
   // Update the fetchAllLotteries callback
   const fetchAllLotteries = useCallback(async () => {
-    if (!wallet.publicKey || !PROGRAM_ID) return;
+    if (!PROGRAM_ID) return;
 
     try {
       setLoading(true);
@@ -180,20 +180,18 @@ export default function DashboardFeature() {
     } finally {
       setLoading(false)
     }
-  }, [wallet.publicKey, PROGRAM_ID, memoizedGetProgram]);
+  }, [PROGRAM_ID, memoizedGetProgram]);
 
   useEffect(() => {
-    if (wallet.publicKey) {
-      // Create an async function inside useEffect
-      const fetchData = async () => {
-        await fetchAllLotteries()
-      }
-
-      fetchData() // Call it immediately
-      const interval = setInterval(fetchData, 10000) // Use the same async function for interval
-      return () => clearInterval(interval)
+    // Create an async function inside useEffect
+    const fetchData = async () => {
+      await fetchAllLotteries()
     }
-  }, [wallet.publicKey, fetchAllLotteries])
+
+    fetchData() // Call it immediately
+    const interval = setInterval(fetchData, 10000) // Use the same async function for interval
+    return () => clearInterval(interval)
+  }, [fetchAllLotteries])
 
   useEffect(() => {
     if (selectedLotteryId) {
@@ -382,80 +380,83 @@ export default function DashboardFeature() {
       {/* Content section - make it full width */}
       <div className="w-full py-8">
         {/* Active lotteries - full width with padding */}
-        {wallet.publicKey && (
-          <div className="bg-white shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300 mb-8">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold text-gray-900">
-                  🎮 Active Lotteries
-                </h2>
+        <div className="bg-white shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300 mb-8">
+          <div className="p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">
+                🎮 Active Lotteries
+              </h2>
+              {wallet.publicKey && (
                 <Button
                   onClick={() => setShowCreateForm(true)}
                   className="bg-primary hover:bg-primary-dark transform hover:scale-105 transition-transform duration-200"
                 >
                   🎨 Create New Lottery
                 </Button>
-              </div>
-              {/* Keep existing lottery grid */}
-              <div className="grid gap-4 sm:grid-cols-2">
-                {allLotteries.map((lottery) => {
-                  const prize = calculatePrize(
-                    lottery.account.entryFee.toNumber(),
-                    lottery.account.totalTickets
-                  )
+              )}
+            </div>
+            
+            {/* Grid of lotteries */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              {allLotteries.map((lottery) => {
+                const prize = calculatePrize(
+                  lottery.account.entryFee.toNumber(),
+                  lottery.account.totalTickets
+                )
 
-                  const isSelected = selectedLotteryId === lottery.account.lotteryId
-                  const currentTime = Math.floor(Date.now() / 1000)
-                  const isEnded = currentTime >= lottery.account.endTime.toNumber()
-                  const isCreator = wallet.publicKey?.equals(lottery.account.creator)
+                const isSelected = selectedLotteryId === lottery.account.lotteryId
+                const currentTime = Math.floor(Date.now() / 1000)
+                const isEnded = currentTime >= lottery.account.endTime.toNumber()
+                const isCreator = wallet.publicKey?.equals(lottery.account.creator)
 
-                  return (
-                    <div
-                      key={lottery.publicKey.toString()}
-                      className={`bg-white border rounded-lg p-4 transition-all duration-200 
-                        ${isSelected
-                          ? 'border-primary shadow-md ring-2 ring-primary ring-opacity-50'
-                          : 'border-gray-200 hover:border-primary hover:shadow-md'}`}
-                    >
-                      <div className="space-y-3">
-                        <div className="flex justify-between items-center">
-                          <span className="text-gray-500">Name:</span>
-                          <span className="font-semibold text-gray-900">{lottery.account.lotteryId}</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-gray-500 pr-4">Prize Pool:</span>
-                          <span className="font-bold text-primary">
-                            {prize.toFixed(3)} SOL
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-gray-500">Entry Fee:</span>
-                          <span className="font-semibold text-gray-900">
-                            {lottery.account.entryFee.toNumber() / LAMPORTS_PER_SOL} SOL
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-gray-500">Tickets Sold:</span>
-                          <span className="font-semibold text-gray-900">
-                            {lottery.account.totalTickets}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-gray-500">Time Left:</span>
-                          <CountdownTimer endTime={lottery.account.endTime.toNumber()} />
-                        </div>
+                return (
+                  <div
+                    key={lottery.publicKey.toString()}
+                    className={`bg-white border rounded-lg p-4 transition-all duration-200 
+                      ${isSelected
+                        ? 'border-primary shadow-md ring-2 ring-primary ring-opacity-50'
+                        : 'border-gray-200 hover:border-primary hover:shadow-md'}`}
+                  >
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-500">Name:</span>
+                        <span className="font-semibold text-gray-900">{lottery.account.lotteryId}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-500 pr-4">Prize Pool:</span>
+                        <span className="font-bold text-primary">
+                          {prize.toFixed(3)} SOL
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-500">Entry Fee:</span>
+                        <span className="font-semibold text-gray-900">
+                          {lottery.account.entryFee.toNumber() / LAMPORTS_PER_SOL} SOL
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-500">Tickets Sold:</span>
+                        <span className="font-semibold text-gray-900">
+                          {lottery.account.totalTickets}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-500">Time Left:</span>
+                        <CountdownTimer endTime={lottery.account.endTime.toNumber()} />
+                      </div>
 
-                        {/* Add Buy Ticket button */}
-                        <div className="pt-2">
+                      {/* Modify Buy Ticket button section */}
+                      <div className="pt-2">
+                        {wallet.publicKey ? (
                           <Button
                             onClick={(e) => {
-                              e.stopPropagation() // Prevent card selection when clicking button
+                              e.stopPropagation()
                               setSelectedLotteryId(lottery.account.lotteryId)
-                              setLotteryState(lottery.account)
-                              buyTicket()
+                              buyTicket(lottery.account)
                             }}
                             disabled={loading || isEnded || isCreator}
-                            className={`w-full ${isEnded
+                            className={`w-full ${
+                              isEnded
                                 ? 'bg-gray-300 cursor-not-allowed'
                                 : isCreator
                                   ? 'bg-yellow-500 cursor-not-allowed'
@@ -467,20 +468,27 @@ export default function DashboardFeature() {
                                 loading ? '⏳ Processing...' :
                                   '🎟️ Buy Ticket'}
                           </Button>
-                          {error && (
-                            <p className="text-red-500 text-sm mt-2 text-center">
-                              {error}
+                        ) : (
+                          <div className="text-center p-2 bg-gray-100 rounded-lg">
+                            <WalletButton className="w-full" />
+                            <p className="text-sm text-gray-600 mt-2">
+                              Connect wallet to participate
                             </p>
-                          )}
-                        </div>
+                          </div>
+                        )}
+                        {error && (
+                          <p className="text-red-500 text-sm mt-2 text-center">
+                            {error}
+                          </p>
+                        )}
                       </div>
                     </div>
-                  )
-                })}
-              </div>
+                  </div>
+                )
+              })}
             </div>
           </div>
-        )}
+        </div>
 
         {/* Past lotteries - full width with padding */}
         <div className="bg-white shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300">
