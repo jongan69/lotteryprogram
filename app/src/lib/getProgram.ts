@@ -2,8 +2,8 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import * as anchor from "@coral-xyz/anchor";
 import { LotteryProgram } from "@/types/lottery";
 import { WalletContextState } from "@solana/wallet-adapter-react";
+import IDL from "../idl/lottery.json";  // Change to default import
 
-// Update the getProgram function to accept an optional wallet parameter
 export const getProgram = async (connection: Connection, wallet: WalletContextState | null, PROGRAM_ID: PublicKey): Promise<LotteryProgram> => {
     if (!PROGRAM_ID) throw new Error("Program ID not initialized")
   
@@ -30,9 +30,6 @@ export const getProgram = async (connection: Connection, wallet: WalletContextSt
       );
   
     anchor.setProvider(provider)
-  
-    // Fetch IDL from chain
-    const idl = await anchor.Program.fetchIdl(PROGRAM_ID, provider)
-    if (!idl) throw new Error("IDL not found")
-    return new anchor.Program(idl, provider) as LotteryProgram
-  }
+    
+    return new anchor.Program(IDL as anchor.Idl, provider) as LotteryProgram;
+}

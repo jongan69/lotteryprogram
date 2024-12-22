@@ -53,9 +53,10 @@ export default function DashboardFeature() {
   const memoizedGetProgram = useCallback(
     () => {
       if (!PROGRAM_ID) throw new Error("Program ID not initialized");
-      return getProgram(connection, wallet.publicKey ? wallet : null, PROGRAM_ID);
+      // Don't require wallet for read operations
+      return getProgram(connection, null, PROGRAM_ID);
     },
-    [connection, wallet, PROGRAM_ID]
+    [connection, PROGRAM_ID]
   );
 
   const getLotteryPDA = (lotteryId: string) => {
