@@ -29,6 +29,7 @@ export default function DashboardFeature() {
   const [selectedLotteryId, setSelectedLotteryId] = useState<string | null>(null)
   const [PROGRAM_ID, setPROGRAM_ID] = useState<PublicKey | null>(null)
   const [pastLotteries, setPastLotteries] = useState<PastLottery[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Add this effect at the component level (inside DashboardFeature)
   useEffect(() => {
@@ -173,6 +174,10 @@ export default function DashboardFeature() {
           const endTime = lottery.account.endTime.toNumber() * 1000
           return endTime > Date.now() && !lottery.account.winner
         })
+        // Sort by end time (ascending)
+        .sort((a, b) => 
+          a.account.endTime.toNumber() - b.account.endTime.toNumber()
+        );
 
       setAllLotteries(activeLotteries)
     } catch (err) {
@@ -201,13 +206,14 @@ export default function DashboardFeature() {
   }, [selectedLotteryId, fetchLotteryState])
 
   const createLottery = async () => {
-    if (!wallet.publicKey) return
+    if (!wallet.publicKey || isSubmitting) return
     if (!newLotteryData.name.trim()) {
       setError('Please enter a lottery name')
       return
     }
 
     try {
+      setIsSubmitting(true)
       setLoading(true)
 
       const response = await fetch('/api/createLottery', {
@@ -238,6 +244,7 @@ export default function DashboardFeature() {
       setError(err.message || 'Failed to create lottery')
     } finally {
       setLoading(false)
+      setIsSubmitting(false)
     }
   }
 
@@ -366,7 +373,7 @@ export default function DashboardFeature() {
               <div className="text-base-content/70 text-lg">
                 <p>🏆 Winners take 85% of the pool</p>
                 <p>👨‍💻 10% funds future development</p>
-                <p>🎨 5% goes to lottery creators</p>
+                <p>💸 5% goes to lottery creators</p>
                 <div className="mt-4 p-4 bg-base-200 rounded-lg">
                   <h3 className="font-semibold mb-2">🎲 Fair Play Guaranteed:</h3>
                   <ul className="space-y-2 text-base">
@@ -393,7 +400,7 @@ export default function DashboardFeature() {
                     rel="noopener noreferrer"
                     className="text-primary hover:underline hover:text-xl transition-all duration-300"
                   >
-                    Click here to join the cool kids club 😎
+                    Click here to join the cool kids club ����
                   </a>
                 </p>
               </div>
@@ -635,10 +642,12 @@ export default function DashboardFeature() {
               />
               <Button
                 type="submit"
-                disabled={loading}
-                className="w-full bg-gradient-to-r from-primary to-primary-dark hover:from-primary-dark hover:to-primary transform hover:scale-105 transition-all duration-200 mt-4"
+                disabled={loading || isSubmitting}
+                className={`w-full bg-gradient-to-r from-primary to-primary-dark hover:from-primary-dark hover:to-primary transform hover:scale-105 transition-all duration-200 mt-4 ${
+                  (loading || isSubmitting) ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
               >
-                {loading ? '🎲 Rolling...' : '🎲 Create Lottery'}
+                {isSubmitting ? '🎲 Creating Lottery...' : loading ? '🎲 Rolling...' : '🎲 Create Lottery'}
               </Button>
             </form>
           </div>
