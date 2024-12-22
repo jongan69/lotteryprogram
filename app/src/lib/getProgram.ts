@@ -4,7 +4,7 @@ import { LotteryProgram } from "@/types/lottery";
 import { WalletContextState } from "@solana/wallet-adapter-react";
 import IDL from "../idl/lottery.json";  // Change to default import
 
-export const getProgram = async (connection: Connection, wallet: WalletContextState | null, PROGRAM_ID: PublicKey): Promise<LotteryProgram> => {
+export const getProgram = async (connection: Connection, wallet: any | null, PROGRAM_ID: PublicKey): Promise<LotteryProgram> => {
     if (!PROGRAM_ID) throw new Error("Program ID not initialized")
   
     // Create a provider with or without wallet

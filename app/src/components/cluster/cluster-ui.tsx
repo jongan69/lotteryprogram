@@ -118,8 +118,9 @@ export function ClusterUiModal({ hideModal, show }: { hideModal: () => void; sho
         onChange={(e) => setNetwork(e.target.value as ClusterNetwork)}
       >
         <option value={undefined}>Select a network</option>
-        <option value={ClusterNetwork.Devnet}>Devnet</option>
         <option value={ClusterNetwork.Mainnet}>Mainnet</option>
+        <option value={ClusterNetwork.Devnet}>Devnet</option>
+       
       </select>
     </AppModal>
   )

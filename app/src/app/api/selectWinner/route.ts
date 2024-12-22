@@ -5,6 +5,7 @@ import * as sb from "@switchboard-xyz/on-demand";
 import bs58 from "bs58";
 import { confirmTransaction, setupQueue, createSelectWinnerInstruction } from "@/lib/transactions";
 import { PROGRAM_ID, RPC_URL, ADMIN_KEY, COMMITMENT, computeUnitPrice, computeUnitLimitMultiple } from "@/lib/constants";
+import { getProgram } from "@/lib/getProgram";
 
 export const maxDuration = 30;
 
@@ -42,20 +43,14 @@ export async function POST(request: Request) {
         const provider = new anchor.AnchorProvider(connection, wallet, {
             commitment: COMMITMENT
         });
-        const idl = await anchor.Program.fetchIdl(PROGRAM_ID!, provider);
-        if (!idl) throw new Error("IDL not found for program");
+        // const idl = await anchor.Program.fetchIdl(PROGRAM_ID!, provider);
+        // if (!idl) throw new Error("IDL not found for program");
         // Create the program instance correctly
         // console.log("IDL:", idl);
         let lotteryProgram: any;
         try {
-            const idl = await anchor.Program.fetchIdl(PROGRAM_ID!, provider);
-            if (!idl) {
-                throw new Error("IDL not found for program");
-            }
-            lotteryProgram = new anchor.Program(
-                idl,
-                provider
-            );
+            // const idl = await anchor.Program.fetchIdl(PROGRAM_ID!, provider);
+            lotteryProgram = await getProgram(connection, wallet, PROGRAM_ID!);
         } catch (error) {
             console.error("Error initializing lottery program:", error);
             throw error;

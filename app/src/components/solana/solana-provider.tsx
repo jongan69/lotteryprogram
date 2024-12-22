@@ -15,7 +15,7 @@ export const WalletButton = dynamic(async () => (await import('@solana/wallet-ad
 
 export function SolanaProvider({ children }: { children: ReactNode }) {
   const { cluster } = useCluster()
-  const endpoint = useMemo(() => cluster?.endpoint, [cluster]) ?? 'https://api.devnet.solana.com'
+  const endpoint = useMemo(() => cluster?.endpoint, [cluster]) ?? 'https://christiane-z5lsaw-fast-mainnet.helius-rpc.com'
   // console.log('endpoint', endpoint)
   const onError = useCallback((error: WalletError) => {
     console.error(error)
