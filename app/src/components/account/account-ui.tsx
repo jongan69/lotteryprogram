@@ -355,7 +355,7 @@ function ModalSend({ hide, show, address }: { hide: () => void; show: boolean; a
 
 export function AccountDetail({ address }: { address: PublicKey }) {
   return (
-    <div className="space-y-4 lg:space-y-6 p-2 lg:p-0">
+    <div className="space-y-4 lg:space-y-6">
       <AccountBalance address={address} />
       <AccountButtons address={address} />
       <div className="border-2 border-dashed border-base-300 p-2 lg:p-4">

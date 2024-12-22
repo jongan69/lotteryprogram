@@ -12,8 +12,8 @@ export default function AccountListFeature() {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
-      <div className="hero bg-base-200 w-full py-16">
+    <div className="flex items-center bg-base-200 h-full py-40">
+      <div className="hero w-full">
         <div className="hero-content text-center">
           <div className="max-w-md">
             <h1 className="text-5xl font-bold mb-8">

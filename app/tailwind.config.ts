@@ -12,10 +12,15 @@ const config: Config = {
         'spin-once': {
           'from': { transform: 'rotate(0deg)' },
           'to': { transform: 'rotate(360deg)' }
+        },
+        fadeIn: {
+          '0%': { opacity: '0', transform: 'translateY(-10px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' }
         }
       },
       animation: {
-        'spin-once': 'spin-once 1s ease-in-out'
+        'spin-once': 'spin-once 1s ease-in-out',
+        'fadeIn': 'fadeIn 0.3s ease-out'
       }
     },
     colors: {

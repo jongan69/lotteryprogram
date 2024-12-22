@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Lottery, LotteryListItem, PastLottery } from '@/types/lottery'
 import { getProgram } from '@/lib/getProgram'
 import { useCluster } from '../cluster/cluster-data-access'
+import { WalletButton } from '../solana/solana-provider'
 
 
 export default function DashboardFeature() {
@@ -322,269 +323,248 @@ export default function DashboardFeature() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
-      <AppHero
-        title="Solana Lottery"
-        subtitle={
-          <div className="space-y-2 p-2">
-            <p>Try your LOCK 🔒 in our decentralized lottery system! Built on Switchboard VRF</p>
-            <p className="text-sm text-gray-600">
-              85% of the pool goes to the winner • 10% development fee • 5% goes to the creator!
-            </p>
-          </div>
-        }
-      />
-
-      {error && (
-        <div className="max-w-2xl mx-auto my-4 p-4 bg-red-50 border border-red-200 rounded-md text-red-600">
-          {error}
-        </div>
-      )}
-
-      {!wallet.publicKey ? (
-        <div className="max-w-6xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-          <div className="bg-white rounded-xl shadow-md p-8 mb-8">
-            <h2 className="text-2xl font-bold mb-4">Connect Your Wallet</h2>
-            <p className="text-gray-600 mb-4">
-              Connect your Solana wallet to participate in lotteries or create your own!
-            </p>
-          </div>
-
-          {/* Past Lotteries Section */}
-          <div className="bg-white rounded-xl shadow-md overflow-hidden">
-            <div className="p-6">
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">Recent Winners</h2>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Lottery Name
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Prize Amount
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Winner
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        End Date
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {loading ? (
-                      <tr>
-                        <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
-                          Loading recent winners...
-                        </td>
-                      </tr>
-                    ) : pastLotteries.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
-                          No completed lotteries yet
-                        </td>
-                      </tr>
-                    ) : (
-                      pastLotteries.map((lottery) => (
-                        <tr key={lottery.publicKey.toString()}>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">
-                              {lottery.account.lotteryId}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">
-                              {lottery.prizeAmount.toFixed(3)} SOL
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-500 font-mono">
-                              {lottery.account.winner
-                                ? `${lottery.account.winner.toString().slice(0, 4)}...${lottery.account.winner.toString().slice(-4)}`
-                                : 'Pending'}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-500">
-                              {new Date(lottery.account.endTime.toNumber() * 1000).toLocaleString()}
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+      <div className="flex items-center justify-center min-h-[calc(100vh-4rem)] bg-base-200 pt-8 w-full">
+        <div className="hero-content text-center max-w-4xl">
+          <div>
+            <h1 className="text-5xl font-bold mb-8 animate-pulse">
+              🎲 SOLottery: Where Dreams Go Moon! 🚀
+            </h1>
+            <div className="text-2xl mb-6 space-y-2">
+              <p className="text-primary">
+                🎵 All that glitters might be SOL 
+                <br/>
+                Only shooting stars break the FOMO 🎵
+              </p>
+            </div>
+            <div className="py-4 text-xl mb-8 space-y-4">
+              <p className="animate-bounce">
+                🎯 Create or join lotteries with just a few clicks!
+              </p>
+              <div className="text-base-content/70 text-lg">
+                <p>🏆 Winners take 85% of the pool</p>
+                <p>👨‍💻 10% funds future development</p>
+                <p>🎨 5% goes to lottery creators</p>
               </div>
+            </div>
+            
+            {!wallet.publicKey && (
+              <div className="flex flex-col items-center gap-4 mb-8">
+                <div className="hover:animate-spin-once">
+                  <WalletButton />
+                </div>
+                <p className="text-sm text-base-content/70">
+                  No wallet? No problem! 🦊
+                  <br/>
+                  <a
+                    href="https://solana.com/developers/guides/getstarted/setup-local-development"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline hover:text-xl transition-all duration-300"
+                  >
+                    Click here to join the cool kids club 😎
+                  </a>
+                </p>
+              </div>
+            )}
+
+            <div className="mt-4 text-xs opacity-50 hover:opacity-100 transition-opacity">
+              * Not financial advice. Unless you win big, then we totally advised you. 
+              <br/>
+              ** Results may vary. Like, a lot. Actually, mostly varying towards not winning. 
+              <br/>
+              *** Your mom was right about saving money, but where's the fun in that? 
             </div>
           </div>
         </div>
-      ) : (
-        <div className="max-w-6xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-          {/* Active Lotteries Section */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-xl shadow-md overflow-hidden">
-              <div className="p-6">
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-2xl font-bold text-gray-900">Active Lotteries</h2>
-                  <Button
-                    onClick={() => setShowCreateForm(true)}
-                    className="bg-primary hover:bg-primary-dark"
-                  >
-                    Create New Lottery
-                  </Button>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {allLotteries.map((lottery) => {
-                    const prize = calculatePrize(
-                      lottery.account.entryFee.toNumber(),
-                      lottery.account.totalTickets
-                    )
+      </div>
 
-                    return (
-                      <div
-                        key={lottery.publicKey.toString()}
-                        className={`bg-white border rounded-lg p-4 cursor-pointer transition-all duration-200 
-                          ${selectedLotteryId === lottery.account.lotteryId
-                            ? 'border-primary shadow-md ring-2 ring-primary ring-opacity-50'
-                            : 'border-gray-200 hover:border-primary hover:shadow-md'}`}
-                        onClick={() => {
-                          setSelectedLotteryId(lottery.account.lotteryId)
-                          setLotteryState(lottery.account)
-                        }}
-                      >
-                        <div className="space-y-3">
-                          <div className="flex justify-between items-center">
-                            <span className="text-gray-500">Name:</span>
-                            <span className="font-semibold text-gray-900">{lottery.account.lotteryId}</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-gray-500 pr-4">Prize Pool:</span>
-                            <span className="font-bold text-primary">
-                              {prize.toFixed(3)} SOL
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-gray-500">Entry Fee:</span>
-                            <span className="font-semibold text-gray-900">
-                              {lottery.account.entryFee.toNumber() / LAMPORTS_PER_SOL} SOL
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-gray-500">Tickets Sold:</span>
-                            <span className="font-semibold text-gray-900">
-                              {lottery.account.totalTickets}
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-gray-500">Time Left:</span>
-                            <CountdownTimer endTime={lottery.account.endTime.toNumber()} />
-                          </div>
+      {/* Content section - make it full width */}
+      <div className="w-full py-8">
+        {/* Active lotteries - full width with padding */}
+        {wallet.publicKey && (
+          <div className="bg-white shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300 mb-8">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold text-gray-900">
+                  🎮 Active Lotteries
+                </h2>
+                <Button
+                  onClick={() => setShowCreateForm(true)}
+                  className="bg-primary hover:bg-primary-dark transform hover:scale-105 transition-transform duration-200"
+                >
+                  🎨 Create New Lottery
+                </Button>
+              </div>
+              {/* Keep existing lottery grid */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                {allLotteries.map((lottery) => {
+                  const prize = calculatePrize(
+                    lottery.account.entryFee.toNumber(),
+                    lottery.account.totalTickets
+                  )
+
+                  return (
+                    <div
+                      key={lottery.publicKey.toString()}
+                      className={`bg-white border rounded-lg p-4 cursor-pointer transition-all duration-200 
+                        ${selectedLotteryId === lottery.account.lotteryId
+                          ? 'border-primary shadow-md ring-2 ring-primary ring-opacity-50'
+                          : 'border-gray-200 hover:border-primary hover:shadow-md'}`}
+                      onClick={() => {
+                        setSelectedLotteryId(lottery.account.lotteryId)
+                        setLotteryState(lottery.account)
+                      }}
+                    >
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-500">Name:</span>
+                          <span className="font-semibold text-gray-900">{lottery.account.lotteryId}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-500 pr-4">Prize Pool:</span>
+                          <span className="font-bold text-primary">
+                            {prize.toFixed(3)} SOL
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-500">Entry Fee:</span>
+                          <span className="font-semibold text-gray-900">
+                            {lottery.account.entryFee.toNumber() / LAMPORTS_PER_SOL} SOL
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-500">Tickets Sold:</span>
+                          <span className="font-semibold text-gray-900">
+                            {lottery.account.totalTickets}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-500">Time Left:</span>
+                          <CountdownTimer endTime={lottery.account.endTime.toNumber()} />
                         </div>
                       </div>
-                    )
-                  })}
-                </div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           </div>
+        )}
 
-          {/* Selected Lottery Details */}
-          {lotteryState && (
-            <div className="bg-white rounded-xl shadow-md overflow-hidden mt-6">
-              <div className="p-6">
-                <h2 className="text-2xl font-bold text-gray-900 mb-6">Selected Lottery Details</h2>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center py-2 border-b">
-                    <span className="text-gray-500">Current Prize Pool</span>
-                    <span className="font-bold text-primary text-lg">
-                      {calculatePrize(
-                        lotteryState.entryFee.toNumber(),
-                        lotteryState.totalTickets
-                      ).toFixed(3)} SOL
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b">
-                    <span className="text-gray-500">Entry Fee</span>
-                    <span className="font-semibold text-gray-900">
-                      {lotteryState.entryFee.toNumber() / LAMPORTS_PER_SOL} SOL
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b">
-                    <span className="text-gray-500">Total Tickets</span>
-                    <span className="font-semibold text-gray-900">{lotteryState.totalTickets}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b">
-                    <span className="text-gray-500">Time Remaining</span>
-                    <CountdownTimer endTime={lotteryState.endTime.toNumber()} />
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b">
-                    <span className="text-gray-500">Creator</span>
-                    <span className="font-mono text-sm">
-                      {`${lotteryState.creator.toString().slice(0, 4)}...${lotteryState.creator.toString().slice(-4)}`}
-                    </span>
-                  </div>
-
-                  {wallet.publicKey && (
-                    <div className="pt-4">
-                      <Button
-                        onClick={buyTicket}
-                        disabled={
-                          loading ||
-                          Date.now() / 1000 > lotteryState.endTime.toNumber() ||
-                          wallet.publicKey.equals(lotteryState.creator)
-                        }
-                        className="w-full bg-gradient-to-r from-primary to-primary-dark hover:from-primary-dark hover:to-primary"
-                      >
-                        {loading ? (
-                          <div className="flex items-center justify-center">
-                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                            Processing...
+        {/* Past lotteries - full width with padding */}
+        <div className="bg-white shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300">
+          <div className="p-6">
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">
+              🏆 Hall of Fame: Recent Winners
+            </h2>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Lottery Name
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Prize Amount
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Winner
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      End Date
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
+                        Loading recent winners...
+                      </td>
+                    </tr>
+                  ) : pastLotteries.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
+                        No completed lotteries yet
+                      </td>
+                    </tr>
+                  ) : (
+                    pastLotteries.map((lottery) => (
+                      <tr key={lottery.publicKey.toString()}>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">
+                            {lottery.account.lotteryId}
                           </div>
-                        ) : Date.now() / 1000 > lotteryState.endTime.toNumber()
-                          ? 'Lottery Ended'
-                          : wallet.publicKey.equals(lotteryState.creator)
-                            ? 'Creators Cannot Buy Tickets to their own lottery'
-                            : `Buy Ticket for ${lotteryState.entryFee.toNumber() / LAMPORTS_PER_SOL} SOL`
-                        }
-                      </Button>
-                    </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900">
+                            {lottery.prizeAmount.toFixed(3)} SOL
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-500 font-mono">
+                            {lottery.account.winner
+                              ? `${lottery.account.winner.toString().slice(0, 4)}...${lottery.account.winner.toString().slice(-4)}`
+                              : 'Pending'}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-500">
+                            {new Date(lottery.account.endTime.toNumber() * 1000).toLocaleString()}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
                   )}
-                </div>
-              </div>
+                </tbody>
+              </table>
             </div>
-          )}
+          </div>
+        </div>
+      </div>
 
-          {/* Create Form */}
-          {showCreateForm && (
-            <div className="bg-white shadow rounded-lg p-6 space-y-4">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-bold">Create New Lottery</h2>
-                <button onClick={() => setShowCreateForm(false)} className="text-gray-400 hover:text-gray-500">×</button>
-              </div>
-              <input
-                type="text"
-                value={newLotteryData.name}
-                onChange={(e) => setNewLotteryData(prev => ({ ...prev, name: e.target.value }))}
-                placeholder="Lottery Name"
-                className="w-full p-2 border rounded"
-              />
-              <input
-                type="number"
-                value={newLotteryData.entryFee}
-                onChange={(e) => setNewLotteryData(prev => ({ ...prev, entryFee: e.target.value }))}
-                placeholder="Entry Fee (SOL)"
-                className="w-full p-2 border rounded"
-              />
-              <input
-                type="number"
-                value={newLotteryData.duration}
-                onChange={(e) => setNewLotteryData(prev => ({ ...prev, duration: e.target.value }))}
-                placeholder="Duration in seconds (e.g. 3600 = 1 hour)"
-                className="w-full p-2 border rounded"
-              />
-              <Button onClick={createLottery} disabled={loading}>Create Lottery</Button>
+      {/* Keep create form modal inside wallet check */}
+      {showCreateForm && wallet.publicKey && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div className="bg-white shadow-xl rounded-lg p-6 space-y-4 max-w-md w-full animate-fadeIn">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-bold">🎨 Create Your Lucky Lottery</h2>
+              <button 
+                onClick={() => setShowCreateForm(false)} 
+                className="text-gray-400 hover:text-gray-500 text-2xl hover:rotate-90 transition-transform duration-300"
+              >
+                ×
+              </button>
             </div>
-          )}
+            <input
+              type="text"
+              value={newLotteryData.name}
+              onChange={(e) => setNewLotteryData(prev => ({ ...prev, name: e.target.value }))}
+              placeholder="Give it a catchy name! 🎵"
+              className="w-full p-2 border rounded hover:border-primary focus:ring-2 focus:ring-primary transition-all duration-200"
+            />
+            <input
+              type="number"
+              value={newLotteryData.entryFee}
+              onChange={(e) => setNewLotteryData(prev => ({ ...prev, entryFee: e.target.value }))}
+              placeholder="Entry Fee (SOL) 💰"
+              className="w-full p-2 border rounded hover:border-primary focus:ring-2 focus:ring-primary transition-all duration-200"
+            />
+            <input
+              type="number"
+              value={newLotteryData.duration}
+              onChange={(e) => setNewLotteryData(prev => ({ ...prev, duration: e.target.value }))}
+              placeholder="Duration in seconds (e.g. 3600 = 1 hour) ⏰"
+              className="w-full p-2 border rounded hover:border-primary focus:ring-2 focus:ring-primary transition-all duration-200"
+            />
+            <Button 
+              onClick={createLottery} 
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-primary to-primary-dark hover:from-primary-dark hover:to-primary transform hover:scale-105 transition-all duration-200"
+            >
+              {loading ? '🎲 Rolling...' : '🎲 Create Lottery'}
+            </Button>
+          </div>
         </div>
       )}
     </div>
