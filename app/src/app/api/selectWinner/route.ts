@@ -59,8 +59,9 @@ export async function POST(request: Request) {
         }
         console.log(lotteryProgram);
         console.log("Lottery Program:", lotteryProgram.programId.toString());
+        console.log(connection);
         const sbProgramId = await sb.getProgramId(connection);
-
+        console.log(sbProgramId);
         const sbIdl = await anchor.Program.fetchIdl(sbProgramId, provider);
         if (!sbIdl) throw new Error("IDL not found for program");
         const sbProgram = new anchor.Program(sbIdl, provider);
