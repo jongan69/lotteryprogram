@@ -375,10 +375,11 @@ export function AccountLotteryPrizes() {
                 !isValidPublicKey(lottery.creator.toString()) ? "Invalid creator address" :
                   claimingLotteryId === lottery.lotteryId ? "Processing claim..." :
                     !wallet.publicKey ? "Please connect your wallet" :
-                      "Click to claim your prize"
+                      Number(lottery.status.statusNumeric) === 3 ? "Prize already claimed" :
+                    "Click to claim your prize"
             }>
               <button
-                className="btn btn-xs btn-primary"
+                className={`btn btn-xs ${Number(lottery.status.statusNumeric) === 3 ? 'btn-disabled' : 'btn-primary'}`}
                 onClick={() => {
                   console.log('Claim button clicked:', {
                     lotteryId: lottery.lotteryId,
@@ -392,13 +393,14 @@ export function AccountLotteryPrizes() {
                   claimingLotteryId === lottery.lotteryId ||
                   !lottery.creator ||
                   !isValidPublicKey(new PublicKey(lottery.creator).toString()) ||
-                  !wallet.publicKey
+                  !wallet.publicKey ||
+                  Number(lottery.status.statusNumeric) === 3
                 }
               >
                 {claimingLotteryId === lottery.lotteryId ? (
                   <span className="loading loading-spinner loading-xs"></span>
                 ) : (
-                  'Claim'
+                  Number(lottery.status.statusNumeric) === 3 ? 'Claimed' : 'Claim'
                 )}
               </button>
             </div>

@@ -9,6 +9,7 @@ import { Lottery, LotteryListItem, PastLottery } from '@/types/lottery'
 import { getProgram } from '@/lib/getProgram'
 import { useCluster } from '../cluster/cluster-data-access'
 import { WalletButton } from '../solana/solana-provider'
+import { ChatFeature } from '../chat/chat-feature'
 
 
 export default function DashboardFeature() {
@@ -597,6 +598,8 @@ export default function DashboardFeature() {
           </div>
         </div>
       )}
+
+      {wallet.publicKey && <ChatFeature />}
     </div>
   )
 }
