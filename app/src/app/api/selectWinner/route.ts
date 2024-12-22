@@ -16,6 +16,9 @@ const txOpts = {
     maxRetries: 0,           // Retry attempts for transaction
 };
 
+const sbProgramId = new PublicKey(process.env.SWITCHBOARD_PROGRAM_ID || '');
+if (!process.env.SWITCHBOARD_PROGRAM_ID) throw new Error("Switchboard program ID not found");
+
 // API Endpoint
 export async function POST(request: Request) {
     try {
@@ -60,9 +63,9 @@ export async function POST(request: Request) {
         console.log(lotteryProgram);
         console.log("Lottery Program:", lotteryProgram.programId.toString());
         console.log(connection);
-        const sbProgramId = await sb.getProgramId(connection);
+        // const sbProgramId = await sb.getProgramId(connection);
         console.log(sbProgramId);
-        const sbIdl = await anchor.Program.fetchIdl(sbProgramId, provider);
+        let sbIdl = await anchor.Program.fetchIdl(sbProgramId, provider);
         if (!sbIdl) throw new Error("IDL not found for program");
         const sbProgram = new anchor.Program(sbIdl, provider);
         // console.log("Available account namespaces:", Object.keys(lotteryProgram.account));
