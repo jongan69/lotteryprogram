@@ -5,5 +5,7 @@ target
 node_modules
 test-ledger
 .yarn
-*.json
 .env
+lock.json
+Lock2.json
+buffer.json

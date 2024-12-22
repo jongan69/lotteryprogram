@@ -5,7 +5,7 @@ resolution = true
 skip-lint = false
 
 [programs.mainnet]
-lottery = "LockmjYWctcbeQCJt5u5z536xbmeU6n5XeQJhuPWxp2"
+lottery = "LockcW3SZfpT9w7i2xCJM5fG429uvJhdV8Mn8s5oqGq"
 
 [registry]
 url = "https://api.apr.dev"

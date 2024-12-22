@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use switchboard_on_demand::accounts::RandomnessAccountData;
 
-declare_id!("LockmjYWctcbeQCJt5u5z536xbmeU6n5XeQJhuPWxp2");
+declare_id!("LockcW3SZfpT9w7i2xCJM5fG429uvJhdV8Mn8s5oqGq");
 
 pub const MAX_PARTICIPANTS: u32 = 100;
 pub const LOTTERY_PREFIX: &[u8] = b"lottery";
