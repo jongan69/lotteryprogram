@@ -35,7 +35,7 @@ export default function DashboardFeature() {
       try {
         const response = await fetch('/api/getProgramId')
         if (!response.ok) throw new Error('Failed to fetch program ID')
-        
+
         const { programId } = await response.json()
         console.log('Program ID:', programId, 'on:', cluster.network)
         setPROGRAM_ID(new PublicKey(programId))
@@ -88,7 +88,7 @@ export default function DashboardFeature() {
 
   // Buy ticket function
   const buyTicket = async () => {
-    if (!wallet.publicKey || !lotteryState || !wallet.signTransaction || !selectedLotteryId) return
+    if (!wallet.publicKey || !lotteryState || !wallet.signTransaction || !selectedLotteryId || !PROGRAM_ID) return
 
     try {
       // Check if buyer is the creator
@@ -109,8 +109,8 @@ export default function DashboardFeature() {
       const program = await memoizedGetProgram()
       const lotteryPDA = getLotteryPDA(selectedLotteryId)
 
-      // Remove the transferIx and just use the program instruction
-      const ix = await program.methods
+      // Create the buy ticket instruction
+      const buyTicketIx = await program.methods
         .buyTicket(selectedLotteryId)
         .accounts({
           lottery: lotteryPDA,
@@ -123,7 +123,7 @@ export default function DashboardFeature() {
       const messageV0 = new TransactionMessage({
         payerKey: wallet.publicKey,
         recentBlockhash: latestBlockhash.blockhash,
-        instructions: [ix], // Remove transferIx, only use the program instruction
+        instructions: [buyTicketIx], // Include both instructions
       }).compileToV0Message()
 
       const transaction = new VersionedTransaction(messageV0)
@@ -279,6 +279,7 @@ export default function DashboardFeature() {
 
       const accounts = await program.account.lotteryState.all();
 
+      console.log('Accounts:', accounts); // Debug log
       const completedLotteries = accounts
         .map(({ publicKey, account }: { publicKey: PublicKey; account: any }) => {
           const lotteryState = account as Lottery;
@@ -297,14 +298,13 @@ export default function DashboardFeature() {
         .filter((lottery: PastLottery) => {
           const endTime = lottery.account.endTime.toNumber() * 1000;
           const hasEnded = endTime <= Date.now();
-          // Consider a lottery completed if it has a winner
-          const isCompleted = lottery.account.winner !== null;
-
-          return hasEnded && isCompleted;
+          // Only check if it has ended, don't filter by winner
+          return hasEnded;
         })
         .sort((a, b) => b.account.endTime.toNumber() - a.account.endTime.toNumber())
         .slice(0, 10);
 
+      console.log('Completed lotteries:', completedLotteries); // Debug log
       setPastLotteries(completedLotteries);
     } catch (err) {
       console.error('Failed to fetch past lotteries:', err);
@@ -331,8 +331,8 @@ export default function DashboardFeature() {
             </h1>
             <div className="text-2xl mb-6 space-y-2">
               <p className="text-primary">
-                🎵 All that glitters might be SOL 
-                <br/>
+                🎵 All that glitters might be SOL
+                <br />
                 Only shooting stars break the FOMO 🎵
               </p>
             </div>
@@ -346,7 +346,7 @@ export default function DashboardFeature() {
                 <p>🎨 5% goes to lottery creators</p>
               </div>
             </div>
-            
+
             {!wallet.publicKey && (
               <div className="flex flex-col items-center gap-4 mb-8">
                 <div className="hover:animate-spin-once">
@@ -354,7 +354,7 @@ export default function DashboardFeature() {
                 </div>
                 <p className="text-sm text-base-content/70">
                   No wallet? No problem! 🦊
-                  <br/>
+                  <br />
                   <a
                     href="https://solana.com/developers/guides/getstarted/setup-local-development"
                     target="_blank"
@@ -368,11 +368,11 @@ export default function DashboardFeature() {
             )}
 
             <div className="mt-4 text-xs opacity-50 hover:opacity-100 transition-opacity">
-              * Not financial advice. Unless you win big, then we totally advised you. 
-              <br/>
-              ** Results may vary. Like, a lot. Actually, mostly varying towards not winning. 
-              <br/>
-              *** Your mom was right about saving money, but where&apos;s the fun in that? 
+              * Not financial advice. Unless you win big, then we totally advised you.
+              <br />
+              ** Results may vary. Like, a lot. Actually, mostly varying towards not winning.
+              <br />
+              *** Your mom was right about saving money, but where&apos;s the fun in that?
             </div>
           </div>
         </div>
@@ -403,17 +403,18 @@ export default function DashboardFeature() {
                     lottery.account.totalTickets
                   )
 
+                  const isSelected = selectedLotteryId === lottery.account.lotteryId
+                  const currentTime = Math.floor(Date.now() / 1000)
+                  const isEnded = currentTime >= lottery.account.endTime.toNumber()
+                  const isCreator = wallet.publicKey?.equals(lottery.account.creator)
+
                   return (
                     <div
                       key={lottery.publicKey.toString()}
-                      className={`bg-white border rounded-lg p-4 cursor-pointer transition-all duration-200 
-                        ${selectedLotteryId === lottery.account.lotteryId
+                      className={`bg-white border rounded-lg p-4 transition-all duration-200 
+                        ${isSelected
                           ? 'border-primary shadow-md ring-2 ring-primary ring-opacity-50'
                           : 'border-gray-200 hover:border-primary hover:shadow-md'}`}
-                      onClick={() => {
-                        setSelectedLotteryId(lottery.account.lotteryId)
-                        setLotteryState(lottery.account)
-                      }}
                     >
                       <div className="space-y-3">
                         <div className="flex justify-between items-center">
@@ -441,6 +442,35 @@ export default function DashboardFeature() {
                         <div className="flex justify-between items-center">
                           <span className="text-gray-500">Time Left:</span>
                           <CountdownTimer endTime={lottery.account.endTime.toNumber()} />
+                        </div>
+
+                        {/* Add Buy Ticket button */}
+                        <div className="pt-2">
+                          <Button
+                            onClick={(e) => {
+                              e.stopPropagation() // Prevent card selection when clicking button
+                              setSelectedLotteryId(lottery.account.lotteryId)
+                              setLotteryState(lottery.account)
+                              buyTicket()
+                            }}
+                            disabled={loading || isEnded || isCreator}
+                            className={`w-full ${isEnded
+                                ? 'bg-gray-300 cursor-not-allowed'
+                                : isCreator
+                                  ? 'bg-yellow-500 cursor-not-allowed'
+                                  : 'bg-primary hover:bg-primary-dark'
+                              } transition-colors duration-200`}
+                          >
+                            {isEnded ? '🔒 Lottery Ended' :
+                              isCreator ? '👑 You are Creator' :
+                                loading ? '⏳ Processing...' :
+                                  '🎟️ Buy Ticket'}
+                          </Button>
+                          {error && (
+                            <p className="text-red-500 text-sm mt-2 text-center">
+                              {error}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -503,9 +533,9 @@ export default function DashboardFeature() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-500 font-mono">
-                            {lottery.account.winner
-                              ? `${lottery.account.winner.toString().slice(0, 4)}...${lottery.account.winner.toString().slice(-4)}`
-                              : 'Pending'}
+                            {lottery.winnerAddress
+                              ? `${lottery.winnerAddress.slice(0, 4)}...${lottery.winnerAddress.slice(-4)}`
+                              : 'Pending Winner'}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -529,8 +559,8 @@ export default function DashboardFeature() {
           <div className="bg-white shadow-xl rounded-lg p-6 space-y-4 max-w-md w-full animate-fadeIn">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-bold">🎨 Create Your Lucky Lottery</h2>
-              <button 
-                onClick={() => setShowCreateForm(false)} 
+              <button
+                onClick={() => setShowCreateForm(false)}
                 className="text-gray-400 hover:text-gray-500 text-2xl hover:rotate-90 transition-transform duration-300"
               >
                 ×
@@ -557,8 +587,8 @@ export default function DashboardFeature() {
               placeholder="Duration in seconds (e.g. 3600 = 1 hour) ⏰"
               className="w-full p-2 border rounded hover:border-primary focus:ring-2 focus:ring-primary transition-all duration-200"
             />
-            <Button 
-              onClick={createLottery} 
+            <Button
+              onClick={createLottery}
               disabled={loading}
               className="w-full bg-gradient-to-r from-primary to-primary-dark hover:from-primary-dark hover:to-primary transform hover:scale-105 transition-all duration-200"
             >

@@ -6,6 +6,7 @@ import { myProgramPath } from "../test-utils/constants";
 import { PublicKey, SystemProgram, Keypair } from "@solana/web3.js";
 import { getNumericStatus } from "../test-utils/getNumericStatus";
 import { sleep } from "../test-utils/sleep";
+import { generateLotteryId } from "../test-utils/generateLotteryId";
 
 it("Should automatically update status when lottery ends", async () => {
   console.log("Starting test...");
@@ -36,39 +37,23 @@ it("Should automatically update status when lottery ends", async () => {
   const endTime = new anchor.BN(Math.floor(Date.now() / 1000) + shortDuration);
   console.log("Lottery parameters set - Duration:", shortDuration, "End time:", endTime.toString());
 
-  // Create lottery account If it doesn't exist
+  // Generate unique lottery ID
+  const lotteryId = generateLotteryId("status");
+  console.log("Generated lottery ID:", lotteryId);
+
+  // Create lottery account with unique ID
   const [lotteryAccount] = PublicKey.findProgramAddressSync(
-    [Buffer.from("lottery"), Buffer.from("status_test")],
+    [Buffer.from("lottery"), Buffer.from(lotteryId)],
     lotteryProgram.programId
   );
   console.log("Lottery PDA address:", lotteryAccount.toString());
-
-  // Try to close existing lottery if it exists
-  console.log("Attempting to close any existing lottery...");
-  try {
-    await lotteryProgram.methods
-      .closeLottery("status_test")
-      .accounts({
-        lottery: lotteryAccount,
-        admin: keypair.publicKey,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([keypair])
-      .rpc();
-    
-    console.log("Successfully closed existing lottery");
-    // Wait a bit for the close transaction to confirm
-    await sleep(2000);
-  } catch (error) {
-    console.log("Close attempt result:", error.message);
-  }
 
   // Initialize the lottery
   console.log("Initializing new lottery...");
   try {
     await lotteryProgram.methods
       .initialize(
-        "status_test",
+        lotteryId,
         entryFee,
         endTime,
         keypair.publicKey
@@ -90,7 +75,7 @@ it("Should automatically update status when lottery ends", async () => {
   // Check status
   console.log("Checking lottery status...");
   let status = await lotteryProgram.methods
-    .getStatus("status_test")
+    .getStatus(lotteryId)
     .accounts({
       lottery: lotteryAccount,
     })
@@ -124,7 +109,7 @@ it("Should automatically update status when lottery ends", async () => {
 
   try {
     await lotteryProgram.methods
-      .buyTicket("status_test")
+      .buyTicket(lotteryId)
       .accounts({
         lottery: lotteryAccount,
         player: participant.publicKey,
@@ -142,7 +127,7 @@ it("Should automatically update status when lottery ends", async () => {
   // Verify status was automatically updated
   console.log("Checking lottery status...");
   status = await lotteryProgram.methods
-    .getStatus("status_test")
+    .getStatus(lotteryId)
     .accounts({
       lottery: lotteryAccount,
     })

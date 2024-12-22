@@ -78,6 +78,16 @@ export async function POST(request: Request) {
         // Fetch lottery state using the correct method
         const lotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
 
+        // Check if lottery has ended and has no winner
+        const currentTime = Math.floor(Date.now() / 1000);
+        if (lotteryState.endTime.toNumber() > currentTime) {
+            throw new Error("Lottery has not ended yet");
+        }
+
+        if (lotteryState.winner) {
+            throw new Error("Winner has already been selected");
+        }
+
         if (!lotteryState.participants || lotteryState.participants.length === 0) {
             throw new Error("No participants found in the lottery");
         }

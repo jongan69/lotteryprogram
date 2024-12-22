@@ -1,46 +1,46 @@
-import { PublicKey } from "@solana/web3.js";
-import * as anchor from "@coral-xyz/anchor";
+import { PublicKey } from '@solana/web3.js'
+import { BN } from '@coral-xyz/anchor'
+import { Program, Idl } from '@coral-xyz/anchor'
 
 export enum LotteryStatus {
-    Active = 0,
-    EndedWaitingForWinner = 1,
-    WinnerSelected = 2,
-    Completed = 3
+  Active = 0,
+  EndedWaitingForWinner = 1,
+  WinnerSelected = 2,
+  Completed = 3
 }
 
-export interface Lottery {
-    lotteryId: string;
-    admin: PublicKey;
-    creator: PublicKey;
-    entryFee: anchor.BN;
-    totalTickets: number;
-    participants: PublicKey[];
-    endTime: anchor.BN;
-    winner: PublicKey | null;
-    randomnessAccount: PublicKey | null;
-    index: number;
-    status: {
-        statusNumeric: number;
-        statusDisplay: string;
+export type Lottery = {
+  lotteryId: string
+  creator: PublicKey
+  entryFee: BN
+  endTime: BN
+  winner: PublicKey | null
+  totalTickets: number
+  participants: PublicKey[]
+  totalPrize: string
+  status: {
+    statusNumeric: number
+    statusDisplay: string
+  }
+}
+
+export type LotteryListItem = {
+  publicKey: PublicKey
+  account: Lottery
+}
+
+export type PastLottery = {
+  publicKey: PublicKey
+  account: Lottery
+  prizeAmount: number
+  winnerAddress: string
+}
+
+export type LotteryProgram = Program<Idl> & {
+  account: {
+    lotteryState: {
+      fetch(address: PublicKey): Promise<any>;
+      all(): Promise<any[]>;
     };
-    totalPrize: anchor.BN;
-}
-
-export interface LotteryListItem {
-    publicKey: PublicKey
-    account: Lottery
-}
-
-export interface PastLottery extends LotteryListItem {
-    prizeAmount: number;
-    winnerAddress: string;
-}
-
-export type LotteryProgram = anchor.Program<anchor.Idl> & {
-    account: {
-        lotteryState: {
-            fetch(address: PublicKey): Promise<any>;
-            all(): Promise<any[]>;
-        };
-    };
+  };
 };

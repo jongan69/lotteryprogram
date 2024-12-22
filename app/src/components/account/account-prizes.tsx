@@ -8,6 +8,7 @@ import * as anchor from '@coral-xyz/anchor';
 import { Lottery } from '@/types/lottery';
 import { isValidPublicKey } from '@/lib/utils';
 import { useTransactionToast } from '../ui/ui-layout';
+import { truncateAddress } from '@/lib/utils';
 
 export function AccountLotteryPrizes() {
   const wallet = useWallet()
@@ -21,6 +22,7 @@ export function AccountLotteryPrizes() {
   const [tableLoading, setTableLoading] = useState(true);
   const POLL_INTERVAL = 30000; // 30 seconds
   const transactionToast = useTransactionToast()
+  const [userLotteries, setUserLotteries] = useState<Lottery[]>([]);
 
   const fetchLotteries = useCallback(async () => {
     try {
@@ -61,13 +63,21 @@ export function AccountLotteryPrizes() {
 
       const data = await response.json();
       console.log('Fetched all lotteries:', data.lotteries);
-      setAllLotteries(data.lotteries || []);
+      
+      const filteredLotteries = (data.lotteries || []).filter((lottery: Lottery) => {
+        // Only show lotteries where user is a participant AND lottery is not completed
+        return lottery.participants?.some(
+          (participant: PublicKey) => participant.toString() === wallet.publicKey?.toString()
+        ) && lottery.status.statusNumeric !== 3; // Filter out completed/finalized lotteries
+      });
+
+      setAllLotteries(filteredLotteries);
     } catch (err) {
       console.error('Error fetching all lotteries:', err);
     } finally {
       setTableLoading(false);
     }
-  }, []);
+  }, [wallet.publicKey]);
 
   const processLottery = useCallback(async (lotteryId: string) => {
     try {
@@ -106,7 +116,8 @@ export function AccountLotteryPrizes() {
       console.log('Attempting to claim prize:', {
         lotteryId,
         winner: wallet.publicKey?.toString(),
-        creator: creator.toString()
+        creator: creator.toString(),
+        status: allLotteries.find(l => l.lotteryId === lotteryId)?.status
       });
 
       if (!wallet.publicKey || !wallet.signTransaction) {
@@ -115,6 +126,15 @@ export function AccountLotteryPrizes() {
 
       if (!isValidPublicKey(creator.toString())) {
         throw new Error('Invalid creator address');
+      }
+
+      const lottery = allLotteries.find(l => l.lotteryId === lotteryId);
+      if (!lottery) {
+        throw new Error('Lottery not found');
+      }
+
+      if (lottery.status.statusNumeric !== 2) { // 2 is WinnerSelected
+        throw new Error(`Invalid lottery status: ${lottery.status.statusDisplay}`);
       }
 
       setClaimingLotteryId(lotteryId);
@@ -133,15 +153,27 @@ export function AccountLotteryPrizes() {
         }),
       });
 
+      const responseData = await response.json();
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to claim prize');
+        console.error('Claim prize error:', {
+          status: response.status,
+          statusText: response.statusText,
+          data: responseData
+        });
+
+        throw new Error(
+          responseData.error ||
+          `Failed to claim prize: ${response.status} ${response.statusText}`
+        );
       }
 
-      const { transaction: serializedTransaction } = await response.json();
+      if (!responseData.success || !responseData.transaction) {
+        throw new Error('Invalid response from server');
+      }
 
       // Convert the serialized transaction from base64 to Uint8Array
-      const transactionBuffer = Buffer.from(serializedTransaction, 'base64');
+      const transactionBuffer = Buffer.from(responseData.transaction, 'base64');
 
       // Deserialize and sign the partially signed transaction
       const transaction = anchor.web3.VersionedTransaction.deserialize(
@@ -160,9 +192,8 @@ export function AccountLotteryPrizes() {
         signature,
         ...latestBlockhash
       });
-      console.log("Claimed prize successfully");
-      transactionToast(signature);
-      // Immediately update the local state
+
+      // After successful claim, update both lottery lists
       setAllLotteries(prevLotteries =>
         prevLotteries.map(lottery =>
           lottery.lotteryId === lotteryId
@@ -171,18 +202,36 @@ export function AccountLotteryPrizes() {
         )
       );
 
+      // Remove from the claimable lotteries list
       setLotteries(prevLotteries =>
         prevLotteries.filter(lottery => lottery.lotteryId !== lotteryId)
       );
 
-      // Optional: Fetch fresh data from the server
+      // Immediately refresh both lottery lists
       await Promise.all([
         fetchLotteries(),
         fetchAllLotteries()
       ]);
+
+      console.log("Claimed prize successfully and refreshed tables");
+
+      // Show success toast
+      transactionToast(signature);
+
     } catch (err) {
       console.error(`Error claiming prize for lottery ${lotteryId}:`, err);
-      setError(err instanceof Error ? err.message : 'Failed to claim prize');
+      let errorMessage = 'Failed to claim prize';
+
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (typeof err === 'string') {
+        errorMessage = err;
+      }
+
+      setError(errorMessage);
+
+      // Show error in UI toast or alert
+      transactionToast(`${errorMessage}`);
     } finally {
       setClaimingLotteryId(null);
     }
@@ -229,7 +278,7 @@ export function AccountLotteryPrizes() {
     try {
       setLoading(true);
       setError(null);
-      
+
       const pendingLotteries = allLotteries.filter(
         lottery => lottery.status.statusNumeric === 1
       );
@@ -283,29 +332,39 @@ export function AccountLotteryPrizes() {
       addressMatch: lottery.winner?.toString() === wallet.publicKey?.toString()
     });
 
-    const prizeAmountSol = lottery.totalPrize ?
-      (lottery.totalPrize.toNumber() / 1000000000).toFixed(2) :
-      'N/A';
+    const prizeAmountSol = lottery.totalPrize
+      ? (Number.parseInt(lottery.totalPrize, 16) / anchor.web3.LAMPORTS_PER_SOL).toFixed(2)
+      : '0.00';
+
+    const isWinner = lottery.winner?.toString() === wallet.publicKey?.toString();
 
     return (
-      <tr key={`table-${lottery.lotteryId}`} className="hover:bg-base-300">
-        <td className="whitespace-nowrap max-w-[4rem] truncate">
-          {lottery.lotteryId.toString()}
+      <tr
+        key={`table-${lottery.lotteryId}`}
+        className={`hover:bg-base-300 ${isWinner ? 'bg-success bg-opacity-10' : ''}`}
+      >
+        <td className="whitespace-nowrap max-w-[4rem] truncate font-mono">
+          {truncateAddress(lottery.lotteryId.toString())}
         </td>
-        <td className="whitespace-nowrap max-w-[4rem] truncate">
-          {(lottery.participants || 0).toString()}
+        <td className="whitespace-nowrap max-w-[4rem] md:table-cell hidden">
+          {lottery.participants?.length || 0}
+        </td>
+        <td className="whitespace-nowrap max-w-[8rem] truncate table-cell md:hidden font-mono">
+          {lottery.winner
+            ? truncateAddress(lottery.winner.toString())
+            : 'Pending'}
         </td>
         <td className="whitespace-nowrap max-w-[6rem] truncate">
           {`${prizeAmountSol} SOL`}
         </td>
         <td className="whitespace-nowrap max-w-[8rem] truncate hidden md:table-cell font-mono">
           {lottery.creator
-            ? `${lottery.creator.toString().slice(0, 4)}...${lottery.creator.toString().slice(-4)}`
+            ? truncateAddress(lottery.creator.toString())
             : ''}
         </td>
         <td className="whitespace-nowrap hidden md:table-cell font-mono">
           {lottery.winner
-            ? lottery.winner.toString()
+            ? truncateAddress(lottery.winner.toString())
             : 'Pending'}
         </td>
         <td className="whitespace-nowrap">
@@ -345,17 +404,17 @@ export function AccountLotteryPrizes() {
             </div>
           ) : (
             <span className={`badge ${lottery.status.statusNumeric === 3
-                ? 'badge-neutral'
-                : lottery.status.statusNumeric === 2
-                  ? 'badge-success'
-                  : lottery.status.statusNumeric === 1
-                    ? 'badge-warning'
-                    : 'badge-info'
+              ? 'badge-neutral'
+              : lottery.status.statusNumeric === 2
+                ? 'badge-success'
+                : lottery.status.statusNumeric === 1
+                  ? 'badge-warning'
+                  : 'badge-info'
               }`}>
-              {lottery.status.statusNumeric === 3 ? 'finalized' 
+              {lottery.status.statusNumeric === 3 ? 'finalized'
                 : lottery.status.statusNumeric === 2 ? 'completed'
-                : lottery.status.statusNumeric === 1 ? 'pending'
-                : 'unknown'}
+                  : lottery.status.statusNumeric === 1 ? 'pending'
+                    : 'unknown'}
             </span>
           )}
         </td>
@@ -404,7 +463,7 @@ export function AccountLotteryPrizes() {
 
       <div className="card bg-base-200">
         <div className="card-body">
-          <h3 className="text-xl font-semibold">Past Lotteries</h3>
+          <h3 className="text-xl font-semibold">My Lottery History</h3>
           {tableLoading ? (
             <div className="flex justify-center py-4">
               <span className="loading loading-spinner"></span>
@@ -415,7 +474,8 @@ export function AccountLotteryPrizes() {
                 <thead>
                   <tr className="bg-base-300">
                     <th className="whitespace-nowrap">Lottery ID</th>
-                    <th className="whitespace-nowrap">Players</th>
+                    <th className="whitespace-nowrap md:table-cell hidden">Players</th>
+                    <th className="whitespace-nowrap table-cell md:hidden">Winner</th>
                     <th className="whitespace-nowrap">Prize</th>
                     <th className="whitespace-nowrap hidden md:table-cell">Creator</th>
                     <th className="whitespace-nowrap hidden md:table-cell">Winner</th>
@@ -430,7 +490,9 @@ export function AccountLotteryPrizes() {
               </table>
             </div>
           ) : (
-            <div className="alert">No lotteries found</div>
+            <div className="alert">
+              You haven&apos;t participated in any lotteries yet
+            </div>
           )}
         </div>
       </div>

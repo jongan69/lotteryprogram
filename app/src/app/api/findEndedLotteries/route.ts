@@ -47,12 +47,13 @@ export async function GET() {
         const lotteryAccounts = await program.account.lotteryState.all();
         console.log(`Total lotteries found: ${lotteryAccounts.length}`);
 
-        // Filter lotteries synchronously first
+        // Filter lotteries that need winners
         const processableLotteries = lotteryAccounts.filter(({ account }) => {
             const hasEnded = account.endTime * 1000 < Date.now();
             const hasParticipants = account.participants && account.participants.length > 0;
+            const needsWinner = !account.winner; // Only include lotteries without winners
             const isAdmin = account.admin.toString() === adminKeypair.publicKey.toString();
-            return hasEnded && hasParticipants && isAdmin;
+            return hasEnded && hasParticipants && needsWinner && isAdmin;
         });
 
         console.log(`Processable lotteries found: ${processableLotteries.length} for program ${PROGRAM_ID}`);

@@ -48,10 +48,11 @@ export async function GET() {
         const lotteryAccounts = await program.account.lotteryState.all();
         console.log(`Total lotteries found: ${lotteryAccounts.length} for program ${PROGRAM_ID}`);
 
-        // Filter for processable lotteries
+        // Filter and process lotteries
         const processableLotteries = lotteryAccounts.filter(({ account }) => {
             const hasEnded = account.endTime * 1000 < Date.now();
             const hasParticipants = account.participants.length > 0;
+            // Don't filter out lotteries with winners since they're now permanent records
             return hasEnded && hasParticipants;
         });
 
@@ -63,8 +64,10 @@ export async function GET() {
                 admin: account.admin.toString(),
                 creator: account.creator.toString(),
                 participants: account.participants,
-                prizeAmount: account.prizeAmount,
-                winner: account.winner || null,
+                totalPrize: account.totalPrize,
+                winner: account.winner?.toString() || null,
+                endTime: account.endTime.toNumber(),
+                totalTickets: account.totalTickets,
             }))
         );
 
@@ -74,9 +77,9 @@ export async function GET() {
             total: processableLotteries.length,
         });
     } catch (error: any) {
-        console.error('Failed to find processable lotteries:', error);
+        console.error('Failed to fetch lotteries:', error);
         return NextResponse.json(
-            { error: error.message || 'Failed to find processable lotteries.' },
+            { error: error.message || 'Failed to fetch lotteries.' },
             { status: 500 }
         );
     }

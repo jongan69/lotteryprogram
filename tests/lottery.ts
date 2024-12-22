@@ -13,6 +13,7 @@ import { sleep } from "../test-utils/sleep";
 import { getNumericStatus } from "../test-utils/getNumericStatus";
 import { confirmTx } from "../test-utils/confirmTx";
 import { getStatusString } from "../test-utils/getStringStatus";
+import { generateLotteryId } from "../test-utils/generateLotteryId";
 
 // Eventually we should import all the test utils in one go
 // import * as testUtils from "../test-utils";
@@ -53,10 +54,11 @@ async function createSelectWinnerInstruction(
   lotteryProgram: anchor.Program,
   lotteryAccount: PublicKey,
   randomnessAccount: PublicKey,
-  keypair: Keypair
+  keypair: Keypair,
+  lotteryId: string
 ): Promise<anchor.web3.TransactionInstruction> {
   return await lotteryProgram.methods
-    .selectWinner("lottery_1")
+    .selectWinner(lotteryId)
     .accounts({
       lottery: lotteryAccount,
       randomnessAccountData: randomnessAccount,
@@ -71,10 +73,11 @@ async function claimPrizeInstruction(
   lotteryAccount: PublicKey,
   winner: Keypair,
   creator: PublicKey,
-  developer: PublicKey
+  developer: PublicKey,
+  lotteryId: string
 ): Promise<anchor.web3.TransactionInstruction> {
   return await lotteryProgram.methods
-    .claimPrize("lottery_1")
+    .claimPrize(lotteryId)
     .accounts({
       lottery: lotteryAccount,
       player: winner.publicKey,
@@ -220,40 +223,15 @@ describe("Lottery", () => {
 
       // Step 4: Initialize lottery state accounts
       console.log("\nStep 2: Initializing lottery state accounts...");
+      const lotteryId = generateLotteryId("lottery");
+      console.log("Generated lottery ID:", lotteryId);
+
       const [lotteryAccount, bump] = PublicKey.findProgramAddressSync(
-        [Buffer.from("lottery"), Buffer.from("lottery_1")],
+        [Buffer.from("lottery"), Buffer.from(lotteryId)],
         lotteryProgram.programId
       );
       console.log("Lottery PDA:", lotteryAccount.toString());
       console.log("Lottery bump:", bump);
-
-      // Before initializing the lottery, we should first check if it exists and close it if needed
-      try {
-        console.log("Checking if lottery account exists...");
-        const existingLotteryAccount = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
-        if (existingLotteryAccount) {
-          console.log("Existing lottery account found, closing it...");
-          await lotteryProgram.methods
-            .closeLottery("lottery_1")
-            .accounts({
-              lottery: lotteryAccount,
-              admin: keypair.publicKey,
-              systemProgram: SystemProgram.programId,
-            })
-            .rpc();
-          console.log("Existing lottery closed successfully");
-        }
-      } catch (error) {
-        if (error.message.includes("Account does not exist")) {
-          console.log("No existing lottery account found");
-        } else {
-          console.error("Error checking lottery account:", error);
-          throw error;
-        }
-      }
-
-      // Add a delay to ensure the close transaction is confirmed
-      await new Promise(resolve => setTimeout(resolve, 2000));
 
       // Then proceed with initialization
       console.log("Proceeding with initialization...");
@@ -264,7 +242,7 @@ describe("Lottery", () => {
 
         const tx = await lotteryProgram.methods
           .initialize(
-            "lottery_1",
+            lotteryId,
             entryFee,
             endTime,
             keypair.publicKey
@@ -290,7 +268,7 @@ describe("Lottery", () => {
       console.log("\nVerifying initial lottery status...");
       // Verify status was updated
       let status = await lotteryProgram.methods
-        .getStatus("lottery_1")
+        .getStatus(lotteryId)
         .accounts({
           lottery: lotteryAccount,
         })
@@ -305,7 +283,7 @@ describe("Lottery", () => {
         try {
           console.log(`\nBuying ticket for ${participant.publicKey.toString()}...`);
           const buyTicketIx = await lotteryProgram.methods
-            .buyTicket("lottery_1")
+            .buyTicket(lotteryId)
             .accounts({
               lottery: lotteryAccount,
               player: participant.publicKey,
@@ -350,7 +328,7 @@ describe("Lottery", () => {
 
       console.log(`\nLottery Info:`);
       status = await lotteryProgram.methods
-        .getStatus("lottery_1")
+        .getStatus(lotteryId)
         .accounts({
           lottery: lotteryAccount,
         })
@@ -374,30 +352,32 @@ describe("Lottery", () => {
 
       // Before selecting winner, add wait
       console.log("\nWaiting for lottery to end...");
-      await sleep(LOTTERY_DURATION_SECONDS * 1000); // Wait 15 seconds
+      await sleep(LOTTERY_DURATION_SECONDS * 1000 + 2000); // Add extra 2 seconds buffer
       console.log("Lottery end time reached");
 
-      // Add these checks after waiting for lottery to end
-      console.log("\nVerifying lottery status after end time...");
-      await sleep(6000); // Wait 6 seconds
-      console.log("Lottery end time reached");
-
-
-      // Verify status was updated
-      console.log("Checking lottery status...");
-      status = await lotteryProgram.methods
-        .getStatus("lottery_1")
+      // Force update the lottery status
+      console.log("Updating lottery status...");
+      await lotteryProgram.methods
+        .getStatus(lotteryId)
         .accounts({
           lottery: lotteryAccount,
         })
-        .view();  // Use .view() since we're just reading data
-      console.log("Status after end time:", status, getNumericStatus(status), getStatusString(status));
+        .rpc();
 
-      assert.equal(
-        getNumericStatus(status),
-        LotteryStatus.EndedWaitingForWinner,
-        "Status should be EndedWaitingForWinner"
-      );
+      // Add verification of lottery status
+      status = await lotteryProgram.methods
+        .getStatus(lotteryId)
+        .accounts({
+          lottery: lotteryAccount,
+        })
+        .view();
+
+      console.log("Current lottery status:", status, getNumericStatus(status), getStatusString(status));
+
+      // Proceed with winner selection only if in correct state
+      if (getNumericStatus(status) !== LotteryStatus.EndedWaitingForWinner) {
+        throw new Error("Lottery not in correct state for winner selection");
+      }
 
       // Step 6: Select a winner using randomness
       console.log("\nStep 4: Selecting winner...");
@@ -460,7 +440,8 @@ describe("Lottery", () => {
           lotteryProgram,
           lotteryAccount,
           randomness.pubkey,
-          keypair
+          keypair,
+          lotteryId
         );
 
         const revealTx = await sb.asV0Tx({
@@ -491,7 +472,7 @@ describe("Lottery", () => {
         // Verify status was updated
         console.log("Checking lottery status...");
         status = await lotteryProgram.methods
-          .getStatus("lottery_1")
+          .getStatus(lotteryId)
           .accounts({
             lottery: lotteryAccount,
           })
@@ -557,7 +538,8 @@ describe("Lottery", () => {
           lotteryAccount,
           winningKeypair,
           keypair.publicKey,  // creator
-          keypair.publicKey   // developer
+          keypair.publicKey,  // developer
+          lotteryId          // <-- Pass lotteryId
         );
 
         const claimPrizeTx = await sb.asV0Tx({
@@ -593,11 +575,14 @@ describe("Lottery", () => {
           // Add these checks after claiming prize
           console.log("\nVerifying final lottery status...");
           console.log("Final status:", getNumericStatus(lotteryState.status), getStatusString(lotteryState.status));
+          assert.isNotNull(lotteryState.winner, "Winner should be preserved after claim");
+          assert.equal(lotteryState.winner.toString(), winningKeypair.publicKey.toString(), "Winner should match");
           assert.equal(
             getNumericStatus(lotteryState.status),
             LotteryStatus.Completed,
             "Final status should be Completed"
           );
+          console.log("Final lottery state:", lotteryState);
         } catch (error) {
           console.error("Failed to claim prize:", error);
           if (error.logs) {

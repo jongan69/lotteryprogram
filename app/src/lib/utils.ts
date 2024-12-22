@@ -59,3 +59,8 @@ export const isValidPublicKey = (key: string | undefined): boolean => {
     return false;
   }
 };
+
+export const truncateAddress = (address: string, length: number = 4): string => {
+  if (!address) return '';
+  return address.slice(0, length) + '...' + address.slice(-length);
+};

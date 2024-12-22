@@ -4,19 +4,30 @@ import { Keypair, PublicKey, Connection } from "@solana/web3.js";
 import bs58 from "bs58";
 import { claimPrizeInstruction } from "@/lib/transactions";
 import { LotteryStatus } from "@/types/lottery";
-import { PROGRAM_ID, RPC_URL, ADMIN_KEY, COMMITMENT } from '@/lib/constants';   
+import { PROGRAM_ID, RPC_URL, ADMIN_KEY, COMMITMENT } from '@/lib/constants';
+import { getNumericStatus } from '@/lib/utils';
 
 // API Endpoint
 export async function POST(request: Request) {
     try {
         const { action, params } = await request.json();
         if (action !== "collectPrize") {
-            return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+            return NextResponse.json(
+                { success: false, error: "Invalid action" },
+                { status: 400 }
+            );
         }
 
         const { lotteryId, participant, creator } = params;
         if (!lotteryId || !participant || !creator) {
-            throw new Error("Lottery ID, participant, and creator are required");
+            return NextResponse.json(
+                {
+                    success: false,
+                    error: "Missing required parameters",
+                    details: { lotteryId, participant, creator }
+                },
+                { status: 400 }
+            );
         }
 
         // Admin keypair and connection setup
@@ -59,8 +70,34 @@ export async function POST(request: Request) {
 
         // Fetch lottery state to verify status
         const lotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
-        if (lotteryState.status !== LotteryStatus.WinnerSelected) {
-            throw new Error("Prize can only be claimed when winner is selected");
+        console.log("Lottery State:", {
+            status: lotteryState.status,
+            winner: lotteryState.winner?.toString(),
+        });
+
+        // Check if the status is WinnerSelected
+        const statusNumeric = getNumericStatus(lotteryState.status);
+        if (statusNumeric !== 2) { // 2 is WinnerSelected
+            return NextResponse.json({
+                success: false,
+                error: 'Prize can only be claimed when winner is selected',
+                details: {
+                    currentStatus: lotteryState.status,
+                    requiredStatus: 'winnerSelected'
+                }
+            }, { status: 400 });
+        }
+
+        // Verify that the winner matches the participant
+        if (!lotteryState.winner || lotteryState.winner.toString() !== participant.publicKey) {
+            return NextResponse.json({
+                success: false,
+                error: 'Only the winner can claim the prize',
+                details: {
+                    winner: lotteryState.winner?.toString(),
+                    participant: participant.publicKey
+                }
+            }, { status: 403 });
         }
 
         // Create claim prize instruction
@@ -91,12 +128,23 @@ export async function POST(request: Request) {
         ).toString('base64');
 
         // Return the base64 encoded transaction
-        return NextResponse.json({ 
-            success: true, 
-            transaction: serializedTransaction 
+        return NextResponse.json({
+            success: true,
+            transaction: serializedTransaction
         });
     } catch (error: any) {
         console.error("Error in collectPrize:", error);
-        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+        return NextResponse.json({
+            success: false,
+            error: error.message || 'Internal server error',
+            details: {
+                name: error.name,
+                code: error.code,
+                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            }
+        }, {
+            status: error.status || 500,
+            statusText: error.statusText || 'Internal Server Error'
+        });
     }
 }

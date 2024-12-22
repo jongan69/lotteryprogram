@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use switchboard_on_demand::accounts::RandomnessAccountData;
 
-declare_id!("49C48RyqUBFSv8RtMA6akJTAkKs2swHeARqA2wkmRWdJ");
+declare_id!("GVzc6gMxVmocUF5uutgsfc3MNjBj9JZ4iEo45RgGTWP1");
 
 pub const MAX_PARTICIPANTS: u32 = 100;
 pub const LOTTERY_PREFIX: &[u8] = b"lottery";
@@ -98,6 +98,9 @@ pub mod lottery {
 
     pub fn select_winner(ctx: Context<SelectWinner>, lottery_id: String) -> Result<()> {
         let lottery = &mut ctx.accounts.lottery;
+        
+        msg!("Starting winner selection for lottery: {}", lottery_id);
+        msg!("Current lottery state - Status: {:?}, Total tickets: {}", lottery.status, lottery.total_tickets);
 
         require!(
             lottery.lottery_id == lottery_id,
@@ -106,8 +109,12 @@ pub mod lottery {
 
         // Get and verify status
         let current_status = lottery.get_status();
+        
+        // Allow selection if status is either Active (after end time) or EndedWaitingForWinner
         require!(
-            matches!(current_status, LotteryStatus::EndedWaitingForWinner),
+            matches!(current_status, LotteryStatus::EndedWaitingForWinner) || 
+            (matches!(current_status, LotteryStatus::Active) && 
+             Clock::get()?.unix_timestamp > lottery.end_time),
             LotteryError::InvalidLotteryState
         );
 
@@ -117,16 +124,13 @@ pub mod lottery {
             .checked_mul(lottery.total_tickets as u64)
             .ok_or(LotteryError::Overflow)?;
 
-        // 2. Check winner status and lottery status
+        // Check winner hasn't been selected yet
         require!(
             lottery.winner.is_none(),
             LotteryError::WinnerAlreadySelected
         );
-        require!(
-            matches!(lottery.status, LotteryStatus::EndedWaitingForWinner),
-            LotteryError::InvalidLotteryState
-        );
-        // 3. Check participants
+
+        // Check participants
         msg!(
             "Total tickets: {}, Participants: {}",
             lottery.total_tickets,
@@ -140,7 +144,7 @@ pub mod lottery {
         // Store randomness account
         lottery.randomness_account = Some(ctx.accounts.randomness_account_data.key());
 
-        // 4. Get randomness
+        // Get randomness
         let randomness_data =
             RandomnessAccountData::parse(ctx.accounts.randomness_account_data.data.borrow())
                 .map_err(|_| {
@@ -154,8 +158,11 @@ pub mod lottery {
             LotteryError::RandomnessNotResolved
         })?;
 
-        // 5. Select winner
+        // Add more detailed logging for randomness calculation
+        msg!("Randomness value: {:?}", randomness_result[0]);
+        msg!("Total participants: {}", lottery.participants.len());
         let winner_index = (randomness_result[0] as usize) % lottery.total_tickets as usize;
+        msg!("Calculated winner index: {}", winner_index);
 
         require!(
             winner_index < lottery.participants.len(),
@@ -163,12 +170,25 @@ pub mod lottery {
         );
 
         let winner_pubkey = lottery.participants[winner_index];
-        lottery.winner = Some(winner_pubkey);
+        
+        msg!("Selected winner pubkey: {:?}", winner_pubkey);
+        
+        // Use the set_winner method instead of direct assignment
+        lottery.set_winner(winner_pubkey)?;
+        
+        // Double check the winner was set
+        msg!("Verifying winner was set: {:?}", lottery.winner);
+        require!(lottery.winner.is_some(), LotteryError::NoWinnerSelected);
+        require!(lottery.winner.unwrap() == winner_pubkey, LotteryError::InvalidWinnerIndex);
+        
         lottery.update_status(LotteryStatus::WinnerSelected);
+        msg!("Final lottery state - Status: {:?}, Winner: {:?}", lottery.status, lottery.winner);
 
         msg!("Winner successfully selected: {:?}", winner_pubkey);
+        msg!("New lottery status: {:?}", lottery.status);
         msg!("Total prize pool: {} lamports", lottery.total_prize);
         msg!("Total participants: {}", lottery.total_tickets);
+        
         Ok(())
     }
 
@@ -176,6 +196,8 @@ pub mod lottery {
         let lottery_info = ctx.accounts.lottery.to_account_info();
         let lottery = &mut ctx.accounts.lottery;
 
+        msg!("Starting claim prize. Current winner: {:?}", lottery.winner);
+        
         require!(
             lottery.lottery_id == lottery_id,
             LotteryError::InvalidLotteryId
@@ -229,13 +251,8 @@ pub mod lottery {
             .to_account_info()
             .try_borrow_mut_lamports()? += prize_amount;
 
-        // Reset lottery state after prize claim
-        lottery.total_tickets = 0;
-        lottery.participants.clear();
-        lottery.index = 0;
-        lottery.winner = None;
+        // Only update status, preserve all other state
         lottery.update_status(LotteryStatus::Completed);
-        lottery.total_prize = 0;
 
         msg!(
             "Final balances - Winner: {} lamports, Creator: {} lamports, Developer: {} lamports, Pool: {} lamports",
@@ -244,29 +261,6 @@ pub mod lottery {
             ctx.accounts.developer.lamports(),
             ctx.accounts.lottery.to_account_info().lamports()
         );
-        Ok(())
-    }
-
-    pub fn close_lottery(ctx: Context<CloseLottery>, lottery_id: String) -> Result<()> {
-        // Verify this is the lottery we want to close
-        require!(
-            ctx.accounts.lottery.lottery_id == lottery_id,
-            LotteryError::InvalidLotteryId
-        );
-
-        // Transfer remaining lamports to admin
-        let dest_starting_lamports = ctx.accounts.admin.lamports();
-        let lottery_lamports = ctx.accounts.lottery.to_account_info().lamports();
-
-        **ctx
-            .accounts
-            .lottery
-            .to_account_info()
-            .try_borrow_mut_lamports()? = 0;
-        **ctx.accounts.admin.try_borrow_mut_lamports()? = dest_starting_lamports
-            .checked_add(lottery_lamports)
-            .ok_or(LotteryError::Overflow)?;
-
         Ok(())
     }
 }
@@ -336,6 +330,21 @@ impl LotteryState {
         + 4
         + 1
         + 8;
+
+    pub fn set_winner(&mut self, winner: Pubkey) -> Result<()> {
+        msg!("Attempting to set winner: {:?}", winner);
+        // Check if winner is already set
+        require!(self.winner.is_none(), LotteryError::WinnerAlreadySelected);
+        require!(
+            self.participants.contains(&winner),
+            LotteryError::InvalidWinnerIndex
+        );
+        
+        msg!("All validations passed, setting winner");
+        self.winner = Some(winner);
+        msg!("Winner has been set to: {:?}", self.winner);
+        Ok(())
+    }
 }
 
 // === Context Structs ===
@@ -378,11 +387,14 @@ pub struct SelectWinner<'info> {
     #[account(
         mut,
         seeds = [LOTTERY_PREFIX, lottery_id.as_bytes()],
-        bump
+        bump,
+        constraint = lottery.winner.is_none() @ LotteryError::WinnerAlreadySelected,
+        // Remove or modify this constraint since it might be too strict
+        // constraint = matches!(lottery.status, LotteryStatus::EndedWaitingForWinner) @ LotteryError::InvalidLotteryState
     )]
     pub lottery: Account<'info, LotteryState>,
     /// CHECK: This account is validated manually within the handler.
-    pub randomness_account_data: AccountInfo<'info>, // Use Switchboard randomness
+    pub randomness_account_data: AccountInfo<'info>,
 }
 
 #[derive(Accounts)]
@@ -394,6 +406,7 @@ pub struct ClaimPrize<'info> {
         bump,
         constraint = lottery.winner.is_some() @ LotteryError::NoWinnerSelected,
         constraint = lottery.winner.unwrap() == player.key() @ LotteryError::NotWinner,
+        constraint = matches!(lottery.status, LotteryStatus::WinnerSelected) @ LotteryError::InvalidLotteryState
     )]
     pub lottery: Account<'info, LotteryState>,
     #[account(mut)]
@@ -403,24 +416,6 @@ pub struct ClaimPrize<'info> {
     pub creator: AccountInfo<'info>,
     #[account(mut)]
     pub developer: Signer<'info>,
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-#[instruction(lottery_id: String)]
-pub struct CloseLottery<'info> {
-    #[account(
-        mut,
-        seeds = [LOTTERY_PREFIX, lottery_id.as_bytes()],
-        bump,
-        close = admin
-    )]
-    pub lottery: Account<'info, LotteryState>,
-    #[account(
-        mut,
-        constraint = lottery.admin == admin.key()
-    )]
-    pub admin: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 
