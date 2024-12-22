@@ -334,6 +334,10 @@ export default function DashboardFeature() {
                 <br />
                 Only shooting stars break the FOMO 🎵
               </p>
+              <p className="text-sm text-base-content/80 bg-primary/10 p-3 rounded-lg mt-4">
+                🔒 Powered by Switchboard VRF: Our lottery uses verifiable random functions 
+                to ensure completely fair and transparent winner selection!
+              </p>
             </div>
             <div className="py-4 text-xl mb-8 space-y-4">
               <p className="animate-bounce">
@@ -343,6 +347,15 @@ export default function DashboardFeature() {
                 <p>🏆 Winners take 85% of the pool</p>
                 <p>👨‍💻 10% funds future development</p>
                 <p>🎨 5% goes to lottery creators</p>
+                <div className="mt-4 p-4 bg-base-200 rounded-lg">
+                  <h3 className="font-semibold mb-2">🎲 Fair Play Guaranteed:</h3>
+                  <ul className="space-y-2 text-base">
+                    <li>✨ Switchboard VRF ensures true randomness</li>
+                    <li>🔐 Tamper-proof winner selection</li>
+                    <li>⛓️ Verifiable on-chain randomness</li>
+                    <li>🤖 No manipulation possible</li>
+                  </ul>
+                </div>
               </div>
             </div>
 
