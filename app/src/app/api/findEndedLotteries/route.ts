@@ -36,16 +36,12 @@ export async function GET() {
         });
 
         // Load lottery program
-
-
         const idl = await anchor.Program.fetchIdl(PROGRAM_ID!, provider);
         if (!idl) throw new Error('IDL not found for the lottery program.');
         const program = new anchor.Program(idl, provider) as LotteryProgram;
 
         // Fetch all lottery accounts
-        console.log('Fetching all lottery accounts...');
         const lotteryAccounts = await program.account.lotteryState.all();
-        console.log(`Total lotteries found: ${lotteryAccounts.length}`);
 
         // Filter lotteries that need winners
         const processableLotteries = lotteryAccounts.filter(({ account }) => {
@@ -55,8 +51,6 @@ export async function GET() {
             const isAdmin = account.admin.toString() === adminKeypair.publicKey.toString();
             return hasEnded && hasParticipants && needsWinner && isAdmin;
         });
-
-        console.log(`Processable lotteries found: ${processableLotteries.length} for program ${PROGRAM_ID}`);
 
         // Get status for each lottery
         const lotteryData = await Promise.all(

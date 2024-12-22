@@ -4,10 +4,7 @@ import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import bs58 from 'bs58';
 import { LotteryProgram } from '@/types/lottery';
 import { getStatus } from '@/lib/getStatus';
-
-const PROGRAM_ID = process.env.NEXT_PUBLIC_PROGRAM_ID
-    ? new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID)
-    : null;
+import { PROGRAM_ID } from '@/lib/constants';
 
 if (!PROGRAM_ID) {
     throw new Error('NEXT_PUBLIC_PROGRAM_ID is not configured.');

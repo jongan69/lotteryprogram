@@ -4,9 +4,9 @@ import { Keypair, PublicKey, Connection } from "@solana/web3.js";
 import * as sb from "@switchboard-xyz/on-demand";
 import bs58 from "bs58";
 import { confirmTransaction, setupQueue, createSelectWinnerInstruction } from "@/lib/transactions";
-import { PROGRAM_ID, RPC_URL, ADMIN_KEY, COMMITMENT, computeUnitPrice, computeUnitLimitMultiple } from "@/lib/constants";
-// import { getProgram } from "@/lib/getProgram";
+import { RPC_URL, ADMIN_KEY, COMMITMENT, computeUnitPrice, computeUnitLimitMultiple } from "@/lib/constants";
 import IDL from "@/idl/lottery.json";
+import { SWITCHBOARD_PROGRAM_ID } from "@/lib/constants";
 
 export const maxDuration = 30;
 
@@ -16,8 +16,7 @@ const txOpts = {
     maxRetries: 0,           // Retry attempts for transaction
 };
 
-const sbProgramId = new PublicKey(process.env.SWITCHBOARD_PROGRAM_ID || '');
-if (!process.env.SWITCHBOARD_PROGRAM_ID) throw new Error("Switchboard program ID not found");
+if (!SWITCHBOARD_PROGRAM_ID) throw new Error("Switchboard program ID not found");
 
 // API Endpoint
 export async function POST(request: Request) {
@@ -47,48 +46,33 @@ export async function POST(request: Request) {
         const provider = new anchor.AnchorProvider(connection, wallet, {
             commitment: COMMITMENT
         });
-        // const idl = await anchor.Program.fetchIdl(PROGRAM_ID!, provider);
-        // if (!idl) throw new Error("IDL not found for program");
-        // Create the program instance correctly
-        // console.log("IDL:", idl);
         let lotteryProgram: any;
         try {
-            // const idl = await anchor.Program.fetchIdl(PROGRAM_ID!, provider);
-            // lotteryProgram = await getProgram(connection, wallet, PROGRAM_ID!);
             lotteryProgram = new anchor.Program(IDL as anchor.Idl, provider);
         } catch (error) {
             console.error("Error initializing lottery program:", error);
             throw error;
         }
-        console.log(lotteryProgram);
         console.log("Lottery Program:", lotteryProgram.programId.toString());
-        console.log(connection);
-        // const sbProgramId = await sb.getProgramId(connection);
-        console.log(sbProgramId);
-        let sbIdl = await anchor.Program.fetchIdl(sbProgramId, provider);
+        let sbIdl = await anchor.Program.fetchIdl(SWITCHBOARD_PROGRAM_ID!, provider);
         if (!sbIdl) throw new Error("IDL not found for program");
         const sbProgram = new anchor.Program(sbIdl, provider);
-        // console.log("Available account namespaces:", Object.keys(lotteryProgram.account));
-
         // Derive Lottery PDA and fetch state
         const [lotteryAccount] = PublicKey.findProgramAddressSync(
             [Buffer.from("lottery"), Buffer.from(lotteryId)],
             lotteryProgram.programId
         );
-
         // Fetch lottery state using the correct method
         const lotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
-
         // Check if lottery has ended and has no winner
         const currentTime = Math.floor(Date.now() / 1000);
+        
         if (lotteryState.endTime.toNumber() > currentTime) {
             throw new Error("Lottery has not ended yet");
         }
-
         if (lotteryState.winner) {
             throw new Error("Winner has already been selected");
         }
-
         if (!lotteryState.participants || lotteryState.participants.length === 0) {
             throw new Error("No participants found in the lottery");
         }
