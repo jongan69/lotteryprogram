@@ -6,7 +6,16 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function getStatusString(status: number): string {
+export function getStatusString(status: any): string {
+  // Handle object-style status from Anchor
+  if (typeof status === 'object') {
+    if (status.active !== undefined) return 'active';
+    if (status.endedWaitingForWinner !== undefined) return 'pending';
+    if (status.winnerSelected !== undefined) return 'winner_selected';
+    if (status.completed !== undefined) return 'completed';
+  }
+
+  // Handle numeric status
   switch (status) {
     case LotteryStatus.Active:
       return 'active';
@@ -23,7 +32,9 @@ export function getStatusString(status: number): string {
 
 // Add helper function to get numeric status
 export function getNumericStatus(status: any): number {
+  console.log('Status in getNumericStatus:', status);
   if (typeof status === 'number') {
+    console.log('Numeric status:', status);
     return status;
   }
   // Handle object case

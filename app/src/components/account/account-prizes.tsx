@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
 import { useInterval } from 'react-use';
@@ -19,7 +19,7 @@ export function AccountLotteryPrizes() {
   const [error, setError] = useState<string | null>(null);
   const [allLotteries, setAllLotteries] = useState<Lottery[]>([]);
   const [tableLoading, setTableLoading] = useState(true);
-  const POLL_INTERVAL = 100000; // 100 seconds
+  const POLL_INTERVAL = 30000; // 30 seconds
   const transactionToast = useTransactionToast()
 
   const fetchLotteries = async () => {
@@ -188,7 +188,7 @@ export function AccountLotteryPrizes() {
     }
   };
 
-  const checkAndProcessPendingLotteries = async () => {
+  const checkAndProcessPendingLotteries = useCallback(async () => {
     try {
       const response = await fetch('/api/findEndedLotteries', {
         method: 'GET',
@@ -200,17 +200,30 @@ export function AccountLotteryPrizes() {
       }
 
       const data = await response.json();
+      console.log('Fetched lotteries:', data.lotteries);
       const pendingLotteries = data.lotteries?.filter(
         (lottery: Lottery) => lottery.status === 1
       );
 
-      for (const lottery of pendingLotteries) {
-        await processLottery(lottery.lotteryId);
+      console.log(`Found ${pendingLotteries?.length || 0} pending lotteries to process`);
+
+      // Automatically process each pending lottery
+      if (pendingLotteries && pendingLotteries.length > 0) {
+        for (const lottery of pendingLotteries) {
+          console.log(`Auto-processing lottery: ${lottery.lotteryId}`);
+          await processLottery(lottery.lotteryId);
+        }
+
+        // Refresh the lottery lists after processing
+        await Promise.all([
+          fetchLotteries(),
+          fetchAllLotteries()
+        ]);
       }
     } catch (err) {
-      console.error('Error checking pending lotteries:', err);
+      console.error('Error checking/processing pending lotteries:', err);
     }
-  };
+  }, [processLottery, fetchLotteries, fetchAllLotteries]);
 
   const processAllPendingLotteries = async () => {
     try {
@@ -244,11 +257,20 @@ export function AccountLotteryPrizes() {
     }
   };
 
-  useInterval(() => {
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
     if (wallet.publicKey) {
       checkAndProcessPendingLotteries();
+      intervalId = setInterval(checkAndProcessPendingLotteries, POLL_INTERVAL);
     }
-  }, POLL_INTERVAL);
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [wallet.publicKey, checkAndProcessPendingLotteries]);
 
   const renderTableRow = (lottery: Lottery) => {
     console.log('Rendering lottery row:', {

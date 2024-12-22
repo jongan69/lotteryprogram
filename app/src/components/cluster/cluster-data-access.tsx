@@ -85,7 +85,7 @@ export function ClusterProvider({ children }: { children: ReactNode }) {
     },
     setCluster: (cluster: Cluster) => {
       if (cluster.network === ClusterNetwork.Mainnet) {
-        const confirmed = window.confirm('Warning: YOURE A FUCKING FAGGOT FUCK YOU PAY ME FOR THIS, ACTUALLY JUST KILL YOURSELF, YOU SICK FUCK, BUY LOCKIN OR YOU WILL BE FUCKED')
+        const confirmed = window.confirm('Warning: Devnet only!')
         if (!confirmed) return
       }
       setCluster(cluster)

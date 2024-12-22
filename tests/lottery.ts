@@ -2,112 +2,20 @@ import * as anchor from "@coral-xyz/anchor";
 import { Keypair, PublicKey, SystemProgram, Commitment, Connection } from "@solana/web3.js";
 import * as sb from "@switchboard-xyz/on-demand";
 import { assert } from "chai";
-import { LotteryStatus } from "../app/src/types/lottery";
 
-// Constants for identifying accounts
-const myProgramPath = "./target/deploy/lottery-keypair.json"; // Path to the lottery program keypair
-const computeUnitPrice = 75_000;
-const computeUnitLimitMultiple = 1.3;
-const commitment = "confirmed";
-const LOTTERY_DURATION_SECONDS = 15; // Controls how long the lottery will run
+// Import test utils
+import { setupQueue } from "../test-utils/setupQueue";
+import { myProgramPath, computeUnitPrice, computeUnitLimitMultiple, commitment, LOTTERY_DURATION_SECONDS } from "../test-utils/constants";
+import { logBalances } from "../test-utils/logBalance";
+import { LotteryState, LotteryStatus } from "../test-utils/types";
+import { loadSbProgram } from "../test-utils/loadSbProgram";
+import { sleep } from "../test-utils/sleep";
+import { getNumericStatus } from "../test-utils/getNumericStatus";
+import { confirmTx } from "../test-utils/confirmTx";
+import { getStatusString } from "../test-utils/getStringStatus";
 
-// Add at the top of the file
-interface LotteryState {
-  lotteryId: string;
-  admin: PublicKey;
-  creator: PublicKey;
-  entryFee: anchor.BN;
-  totalTickets: number;
-  participants: PublicKey[];
-  endTime: anchor.BN;
-  winner: PublicKey | null;
-  randomnessAccount: PublicKey | null;
-  index: number;
-  status: LotteryStatus;
-  totalPrize: anchor.BN;
-}
-
-// helper functions
-async function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-//function to log balances
-async function logBalances(
-  connection: Connection,
-  lottery: PublicKey,
-  admin: PublicKey,
-  participants: { name: string, pubkey: PublicKey }[]
-) {
-  const lotteryBalance = await connection.getBalance(lottery);
-  const adminBalance = await connection.getBalance(admin);
-
-  console.log("\nCurrent Balances:");
-  console.log(`Lottery Pool: ${lotteryBalance / anchor.web3.LAMPORTS_PER_SOL} SOL`);
-  console.log(`Admin: ${adminBalance / anchor.web3.LAMPORTS_PER_SOL} SOL`);
-
-  // Log each participant's balance
-  for (const participant of participants) {
-    const balance = await connection.getBalance(participant.pubkey);
-    console.log(`Participant #${participants.indexOf(participant)} in Lottery: ${participant.name} balance: ${balance / anchor.web3.LAMPORTS_PER_SOL} SOL`);
-  }
-}
-
-// Utility function to setup the Switchboard queue
-async function setupQueue(program: anchor.Program): Promise<PublicKey> {
-  const queueAccount = await sb.getDefaultQueue(
-    program.provider.connection.rpcEndpoint
-  );
-  console.log("Queue account found:", queueAccount.pubkey.toString());
-  try {
-    console.log("Loading queue data...");
-    await queueAccount.loadData();
-    console.log("Queue data loaded successfully");
-  } catch (err) {
-    console.error("Error loading queue data:", err);
-    console.error("Queue not found, ensure you are using devnet in your env");
-    process.exit(1);
-  }
-  return queueAccount.pubkey;
-}
-
-// Utility function to load the Switchboard program
-async function loadSbProgram(provider: anchor.Provider): Promise<anchor.Program> {
-  console.log("Loading Switchboard program...");
-  const sbProgramId = await sb.getProgramId(provider.connection);
-  console.log("Switchboard program ID:", sbProgramId.toString());
-
-  console.log("Fetching program IDL...");
-  const sbIdl = await anchor.Program.fetchIdl(sbProgramId, provider);
-
-  if (!sbIdl) {
-    console.error("Failed to fetch Switchboard IDL");
-    throw new Error("IDL fetch failed");
-  }
-
-  console.log("Creating program instance...");
-  const sbProgram = new anchor.Program(sbIdl, provider);
-  return sbProgram;
-}
-
-async function confirmTx(connection: Connection, signature: string) {
-  try {
-    const latestBlockhash = await connection.getLatestBlockhash();
-    const confirmation = await connection.confirmTransaction({
-      signature,
-      blockhash: latestBlockhash.blockhash,
-      lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
-    }, commitment);  // Change commitment level to 'confirmed'
-
-    if (confirmation.value.err) {
-      throw new Error(`Transaction failed: ${confirmation.value.err.toString()}`);
-    }
-
-    return confirmation;
-  } catch (error) {
-    console.error("Transaction confirmation failed:", error);
-    throw error;
-  }
-}
+// Eventually we should import all the test utils in one go
+// import * as testUtils from "../test-utils";
 
 // Utility function to handle sending and confirming transactions
 export async function handleTransaction(
@@ -176,130 +84,6 @@ async function claimPrizeInstruction(
     })
     .instruction();
 }
-
-// Add helper function to get numeric status
-function getNumericStatus(status: any): number {
-  if (typeof status === 'number') {
-    return status;
-  }
-  // Handle object case
-  if (status.active !== undefined) return 0;
-  if (status.endedWaitingForWinner !== undefined) return 1;
-  if (status.winnerSelected !== undefined) return 2;
-  if (status.completed !== undefined) return 3;
-  // If it's a raw number-like value, convert it
-  if (status.toString) {
-    const num = Number(status.toString());
-    if (!isNaN(num)) return num;
-  }
-  return -1; // Invalid status
-}
-
-describe("Lottery", () => {
-  it("should setup and initialize lottery", async () => {
-    console.log("Starting lottery test script...");
-    // Step 1: Load environment settings from Switchboard
-    console.log("Loading environment settings...");
-    const { keypair, connection, program } = await sb.AnchorUtils.loadEnv();
-    console.log("Environment loaded successfully");
-    console.log("Program ID:", program!.programId.toString());
-    console.log("Wallet pubkey:", keypair.publicKey.toString());
-
-    // Step 2: Setup Switchboard queue for randomness
-    console.log("\nSetting up Switchboard queue...");
-    let queue = await setupQueue(program!);
-    console.log("Queue setup complete");
-
-    console.log("\nLoading programs...");
-    // Load Switchboard program
-    // const sbProgram = await loadSbProgram(program!.provider);
-    const myProgramKeypair = await sb.AnchorUtils.initKeypairFromFile(myProgramPath);
-    const pid = myProgramKeypair.publicKey;
-    console.log("PID:", pid.toString());
-
-    // Add error handling and logging for program loading
-    let lotteryProgram: any;
-    try {
-      const idl = await anchor.Program.fetchIdl(pid, program!.provider);
-      if (!idl) {
-        throw new Error("IDL not found for program");
-      }
-
-      lotteryProgram = new anchor.Program(
-        idl,
-        program!.provider
-      );
-
-      console.log("Lottery program loaded successfully");
-      console.log("Available methods:", Object.keys(lotteryProgram.methods));
-    } catch (error) {
-      console.error("Failed to load lottery program:", error);
-      process.exit(1);
-    }
-
-    console.log("Programs loaded");
-    console.log("Lottery program ID:", lotteryProgram.programId.toString());
-  });
-});
-
-describe("Lottery", () => {
-  it("Create and fund participants from admin wallet", async () => {
-    const { keypair, connection, program } = await sb.AnchorUtils.loadEnv();
-    const sbProgram = await loadSbProgram(program!.provider);
-    const txOpts = {
-      commitment: "processed" as Commitment,  // Transaction commitment level
-      skipPreflight: false,                  // Skip preflight checks
-      maxRetries: 0,                          // Retry attempts for transaction
-    };
-
-    const participant1 = Keypair.generate();
-    const participant2 = Keypair.generate();
-    console.log("Created participants:", {
-      participant1: participant1.publicKey.toString(),
-      participant2: participant2.publicKey.toString()
-    });
-
-    // Fund the participants first
-    console.log("Funding participants...");
-    const fundAmount = 0.2 * anchor.web3.LAMPORTS_PER_SOL;
-
-    const transferIx1 = SystemProgram.transfer({
-      fromPubkey: keypair.publicKey,
-      toPubkey: participant1.publicKey,
-      lamports: fundAmount,
-    });
-
-    const transferIx2 = SystemProgram.transfer({
-      fromPubkey: keypair.publicKey,
-      toPubkey: participant2.publicKey,
-      lamports: fundAmount,
-    });
-
-    const fundTx1 = await sb.asV0Tx({
-      connection: sbProgram.provider.connection,
-      ixs: [transferIx1],
-      payer: keypair.publicKey,
-      signers: [keypair],
-      computeUnitPrice: computeUnitPrice,
-      computeUnitLimitMultiple: computeUnitLimitMultiple,
-    });
-
-    const fundTx2 = await sb.asV0Tx({
-      connection: sbProgram.provider.connection,
-      ixs: [transferIx2],
-      payer: keypair.publicKey,
-      signers: [keypair],
-      computeUnitPrice: computeUnitPrice,
-      computeUnitLimitMultiple: computeUnitLimitMultiple,
-    });
-
-    const fundSig1 = await connection.sendTransaction(fundTx1, txOpts);
-    await confirmTx(connection, fundSig1);
-    const fundSig2 = await connection.sendTransaction(fundTx2, txOpts);
-    await confirmTx(connection, fundSig2);
-    console.log("Participants funded successfully");
-  });
-});
 
 describe("Lottery", () => {
   it("Should run through the whole lottery process to completion", async () => {
@@ -504,14 +288,14 @@ describe("Lottery", () => {
       // Add these checks after initializing the lottery
       let lotteryState: LotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
       console.log("\nVerifying initial lottery status...");
-      console.log("Initial status (raw):", lotteryState.status);
-      const numericStatus = getNumericStatus(lotteryState.status);
-      console.log("Initial status (numeric):", numericStatus);
-      assert.equal(
-        numericStatus,
-        LotteryStatus.Active,
-        "Initial status should be Active"
-      );
+      // Verify status was updated
+      let status = await lotteryProgram.methods
+        .getStatus("lottery_1")
+        .accounts({
+          lottery: lotteryAccount,
+        })
+        .view();  // Use .view() since we're just reading data
+      console.log("Status after initialization:", status, getNumericStatus(status), getStatusString(status));
 
       // Step 5: Set up multiple ticket purchases
       console.log("\nStep 3: Setting up multiple ticket purchases...");
@@ -563,9 +347,18 @@ describe("Lottery", () => {
 
       // Log total participants
       lotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
-      console.log(`\nLottery Status:`);
+
+      console.log(`\nLottery Info:`);
+      status = await lotteryProgram.methods
+        .getStatus("lottery_1")
+        .accounts({
+          lottery: lotteryAccount,
+        })
+        .view();  // Use .view() since we're just reading data
       console.log(`Total tickets purchased: ${lotteryState.totalTickets}`);
       console.log(`Total participants for lottery ID ${lotteryState.lotteryId}: ${lotteryState.participants.length}`);
+      console.log(`Lottery end time: ${lotteryState.endTime}`);
+      console.log(`Lottery status: ${getNumericStatus(status)} (${getStatusString(status)})`);
 
       // Log balances for all participants
       await logBalances(
@@ -589,34 +382,19 @@ describe("Lottery", () => {
       await sleep(6000); // Wait 6 seconds
       console.log("Lottery end time reached");
 
-      // Update lottery status
-      const updateStatusIx = await lotteryProgram.methods
-        .updateLotteryStatus("lottery_1")
-        .accounts({
-          lottery: lotteryAccount,
-          systemProgram: SystemProgram.programId,
-        })
-        .instruction();
-
-      const updateStatusTx = await sb.asV0Tx({
-        connection: sbProgram.provider.connection,
-        ixs: [updateStatusIx],
-        payer: keypair.publicKey,
-        signers: [keypair],
-        computeUnitPrice: computeUnitPrice,
-        computeUnitLimitMultiple: computeUnitLimitMultiple,
-      });
-
-      const updateSig = await connection.sendTransaction(updateStatusTx, txOpts);
-      await confirmTx(connection, updateSig);
-
-      // Fetch the latest state after updating status
-      lotteryState = await lotteryProgram.account.lotteryState.fetch(lotteryAccount);
 
       // Verify status was updated
-      console.log("Status after end time:", lotteryState.status);
+      console.log("Checking lottery status...");
+      status = await lotteryProgram.methods
+        .getStatus("lottery_1")
+        .accounts({
+          lottery: lotteryAccount,
+        })
+        .view();  // Use .view() since we're just reading data
+      console.log("Status after end time:", status, getNumericStatus(status), getStatusString(status));
+
       assert.equal(
-        getNumericStatus(lotteryState.status),
+        getNumericStatus(status),
         LotteryStatus.EndedWaitingForWinner,
         "Status should be EndedWaitingForWinner"
       );
@@ -709,6 +487,22 @@ describe("Lottery", () => {
         let result = resultLog?.split(": ")[2];
         console.log("Winner:", result);
 
+
+        // Verify status was updated
+        console.log("Checking lottery status...");
+        status = await lotteryProgram.methods
+          .getStatus("lottery_1")
+          .accounts({
+            lottery: lotteryAccount,
+          })
+          .view();  // Use .view() since we're just reading data
+        console.log("Status after winner selection:", status, getNumericStatus(status), getStatusString(status));
+        assert.equal(
+          getNumericStatus(status),
+          LotteryStatus.WinnerSelected,
+          "Status should be WinnerSelected"
+        );
+
         // After selecting winner
         await logBalances(
           connection,
@@ -798,7 +592,7 @@ describe("Lottery", () => {
 
           // Add these checks after claiming prize
           console.log("\nVerifying final lottery status...");
-          console.log("Final status:", lotteryState.status);
+          console.log("Final status:", getNumericStatus(lotteryState.status), getStatusString(lotteryState.status));
           assert.equal(
             getNumericStatus(lotteryState.status),
             LotteryStatus.Completed,
@@ -822,4 +616,4 @@ describe("Lottery", () => {
       }
     }
   });
-})
+});

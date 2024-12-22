@@ -44,18 +44,20 @@ export async function GET() {
         console.log('Fetching all lottery accounts...');
         const lotteryAccounts = await program.account.lotteryState.all();
         console.log(`Total lotteries found: ${lotteryAccounts.length}`);
-
+        console.log('Lottery accounts:', lotteryAccounts);
         // Filter for processable lotteries
         const processableLotteries = lotteryAccounts.filter(({ account }) => {
             const numericStatus = getNumericStatus(account.status);
             const hasEnded = account.endTime * 1000 < Date.now();
             const hasParticipants = account.participants && account.participants.length > 0;
             const isAdmin = account.admin.toString() === adminKeypair.publicKey.toString();
-            const isProcessable = numericStatus === 1;
-            return hasEnded && hasParticipants && isAdmin && isProcessable;
+            return hasEnded && hasParticipants && isAdmin;
         });
 
         console.log(`Processable lotteries found: ${processableLotteries.length} for program ${PROGRAM_ID}`);
+        for (const lottery of processableLotteries) {
+            console.log('Lottery:', lottery.account.status);
+        }
         // console.log('Processable lotteries:', processableLotteries);
         // Return processable lotteries
         return NextResponse.json({
