@@ -597,8 +597,8 @@ export default function DashboardFeature() {
 
       {/* Keep create form modal inside wallet check */}
       {showCreateForm && wallet.publicKey && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
-          <div className="bg-white shadow-xl rounded-lg p-6 space-y-4 max-w-md w-full animate-fadeIn">
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm z-50">
+          <div className="bg-white/100 shadow-xl rounded-lg p-6 space-y-4 max-w-md w-full animate-fadeIn">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-bold">🎨 Create Your Lucky Lottery</h2>
               <button
@@ -609,7 +609,7 @@ export default function DashboardFeature() {
               </button>
             </div>
             <form onSubmit={(e) => {
-              e.preventDefault() // Prevent form submission
+              e.preventDefault()
               createLottery()
             }}>
               <input
