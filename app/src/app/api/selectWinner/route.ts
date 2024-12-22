@@ -5,7 +5,8 @@ import * as sb from "@switchboard-xyz/on-demand";
 import bs58 from "bs58";
 import { confirmTransaction, setupQueue, createSelectWinnerInstruction } from "@/lib/transactions";
 import { PROGRAM_ID, RPC_URL, ADMIN_KEY, COMMITMENT, computeUnitPrice, computeUnitLimitMultiple } from "@/lib/constants";
-import { getProgram } from "@/lib/getProgram";
+// import { getProgram } from "@/lib/getProgram";
+import IDL from "@/idl/lottery.json";
 
 export const maxDuration = 30;
 
@@ -50,7 +51,8 @@ export async function POST(request: Request) {
         let lotteryProgram: any;
         try {
             // const idl = await anchor.Program.fetchIdl(PROGRAM_ID!, provider);
-            lotteryProgram = await getProgram(connection, wallet, PROGRAM_ID!);
+            // lotteryProgram = await getProgram(connection, wallet, PROGRAM_ID!);
+            lotteryProgram = new anchor.Program(IDL as anchor.Idl, provider);
         } catch (error) {
             console.error("Error initializing lottery program:", error);
             throw error;

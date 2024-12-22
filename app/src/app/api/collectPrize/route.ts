@@ -3,7 +3,6 @@ import * as anchor from "@coral-xyz/anchor";
 import { Keypair, PublicKey, Connection } from "@solana/web3.js";
 import bs58 from "bs58";
 import { claimPrizeInstruction } from "@/lib/transactions";
-import { LotteryStatus } from "@/types/lottery";
 import { PROGRAM_ID, RPC_URL, ADMIN_KEY, COMMITMENT } from '@/lib/constants';
 import { getNumericStatus } from '@/lib/utils';
 
