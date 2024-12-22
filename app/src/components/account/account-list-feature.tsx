@@ -20,7 +20,7 @@ export default function AccountListFeature() {
               🎰 Ready to Get RICH?! 🤑
             </h1>
             <div className="text-2xl mb-6">
-              🎵 Hey now, you're a SOLstar 
+              🎵 Hey now, you&apos;re a SOLstar 
               <br/>Get your wallet, go plaaaay! 🎵
             </div>
             <p className="py-4 text-xl mb-4 animate-bounce">

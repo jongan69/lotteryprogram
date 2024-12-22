@@ -341,7 +341,7 @@ export default function DashboardFeature() {
                 🎯 Create or join lotteries with just a few clicks!
               </p>
               <div className="text-base-content/70 text-lg">
-                <p>🏆 Winners take 85% of the pool</p>
+                <p>�� Winners take 85% of the pool</p>
                 <p>👨‍💻 10% funds future development</p>
                 <p>🎨 5% goes to lottery creators</p>
               </div>
@@ -372,7 +372,7 @@ export default function DashboardFeature() {
               <br/>
               ** Results may vary. Like, a lot. Actually, mostly varying towards not winning. 
               <br/>
-              *** Your mom was right about saving money, but where's the fun in that? 
+              *** Your mom was right about saving money, but where&apos;s the fun in that? 
             </div>
           </div>
         </div>
