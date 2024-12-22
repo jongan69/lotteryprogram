@@ -1,17 +1,17 @@
 [toolchain]
 
 [features]
-seeds = false
+resolution = true
 skip-lint = false
 
-[programs.localnet]
-lottery = "GVzc6gMxVmocUF5uutgsfc3MNjBj9JZ4iEo45RgGTWP1"
+[programs.mainnet]
+lottery = "LockmjYWctcbeQCJt5u5z536xbmeU6n5XeQJhuPWxp2"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "devnet"
+cluster = "Mainnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
