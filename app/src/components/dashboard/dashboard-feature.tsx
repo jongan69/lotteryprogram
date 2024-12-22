@@ -241,7 +241,7 @@ export default function DashboardFeature() {
     }
   }
 
-  // Add a countdown timer component
+  // Replace the existing CountdownTimer component with this updated version
   const CountdownTimer = ({ endTime }: { endTime: number }) => {
     const [timeLeft, setTimeLeft] = useState(Math.max(0, endTime * 1000 - Date.now()))
 
@@ -253,12 +253,31 @@ export default function DashboardFeature() {
       return () => clearInterval(timer)
     }, [endTime])
 
-    const minutes = Math.floor(timeLeft / 1000 / 60)
+    if (timeLeft === 0) {
+      return <span className="text-red-600 font-mono">Ended</span>
+    }
+
+    // Calculate time units
     const seconds = Math.floor((timeLeft / 1000) % 60)
+    const minutes = Math.floor((timeLeft / (1000 * 60)) % 60)
+    const hours = Math.floor((timeLeft / (1000 * 60 * 60)) % 24)
+    const days = Math.floor((timeLeft / (1000 * 60 * 60 * 24)) % 30)
+    const months = Math.floor((timeLeft / (1000 * 60 * 60 * 24 * 30)) % 12)
+    const years = Math.floor(timeLeft / (1000 * 60 * 60 * 24 * 365))
+
+    // Build time string
+    const timeString = [
+      years > 0 ? `${years}y` : '',
+      months > 0 ? `${months}m` : '',
+      days > 0 ? `${days}d` : '',
+      hours > 0 ? `${hours}h` : '',
+      minutes > 0 ? `${minutes}m` : '',
+      `${seconds}s`
+    ].filter(Boolean).join(' ')
 
     return (
-      <span className={`font-mono ${timeLeft === 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-        {timeLeft === 0 ? 'Ended' : `${minutes}m ${seconds}s`}
+      <span className="font-mono text-emerald-600">
+        {timeString}
       </span>
     )
   }
@@ -589,34 +608,39 @@ export default function DashboardFeature() {
                 ×
               </button>
             </div>
-            <input
-              type="text"
-              value={newLotteryData.name}
-              onChange={(e) => setNewLotteryData(prev => ({ ...prev, name: e.target.value }))}
-              placeholder="Give it a catchy name! 🎵"
-              className="w-full p-2 border rounded hover:border-primary focus:ring-2 focus:ring-primary transition-all duration-200"
-            />
-            <input
-              type="number"
-              value={newLotteryData.entryFee}
-              onChange={(e) => setNewLotteryData(prev => ({ ...prev, entryFee: e.target.value }))}
-              placeholder="Entry Fee (SOL) 💰"
-              className="w-full p-2 border rounded hover:border-primary focus:ring-2 focus:ring-primary transition-all duration-200"
-            />
-            <input
-              type="number"
-              value={newLotteryData.duration}
-              onChange={(e) => setNewLotteryData(prev => ({ ...prev, duration: e.target.value }))}
-              placeholder="Duration in seconds (e.g. 3600 = 1 hour) ⏰"
-              className="w-full p-2 border rounded hover:border-primary focus:ring-2 focus:ring-primary transition-all duration-200"
-            />
-            <Button
-              onClick={createLottery}
-              disabled={loading}
-              className="w-full bg-gradient-to-r from-primary to-primary-dark hover:from-primary-dark hover:to-primary transform hover:scale-105 transition-all duration-200"
-            >
-              {loading ? '🎲 Rolling...' : '🎲 Create Lottery'}
-            </Button>
+            <form onSubmit={(e) => {
+              e.preventDefault() // Prevent form submission
+              createLottery()
+            }}>
+              <input
+                type="text"
+                value={newLotteryData.name}
+                onChange={(e) => setNewLotteryData(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="Give it a catchy name! 🎵"
+                className="w-full p-2 border rounded hover:border-primary focus:ring-2 focus:ring-primary transition-all duration-200"
+              />
+              <input
+                type="number"
+                value={newLotteryData.entryFee}
+                onChange={(e) => setNewLotteryData(prev => ({ ...prev, entryFee: e.target.value }))}
+                placeholder="Entry Fee (SOL) 💰"
+                className="w-full p-2 border rounded hover:border-primary focus:ring-2 focus:ring-primary transition-all duration-200 mt-4"
+              />
+              <input
+                type="number"
+                value={newLotteryData.duration}
+                onChange={(e) => setNewLotteryData(prev => ({ ...prev, duration: e.target.value }))}
+                placeholder="Duration in seconds (e.g. 3600 = 1 hour) ⏰"
+                className="w-full p-2 border rounded hover:border-primary focus:ring-2 focus:ring-primary transition-all duration-200 mt-4"
+              />
+              <Button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-gradient-to-r from-primary to-primary-dark hover:from-primary-dark hover:to-primary transform hover:scale-105 transition-all duration-200 mt-4"
+              >
+                {loading ? '🎲 Rolling...' : '🎲 Create Lottery'}
+              </Button>
+            </form>
           </div>
         </div>
       )}
