@@ -324,8 +324,8 @@ export default function DashboardFeature() {
         .filter((lottery: PastLottery) => {
           const endTime = lottery.account.endTime.toNumber() * 1000;
           const hasEnded = endTime <= Date.now();
-          // Only check if it has ended, don't filter by winner
-          return hasEnded;
+          // Only include lotteries that have ended AND had participants
+          return hasEnded && lottery.account.totalTickets > 0;
         })
         .sort((a, b) => b.account.endTime.toNumber() - a.account.endTime.toNumber())
         .slice(0, 10);
