@@ -7,7 +7,17 @@ const config: Config = {
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      keyframes: {
+        'spin-once': {
+          'from': { transform: 'rotate(0deg)' },
+          'to': { transform: 'rotate(360deg)' }
+        }
+      },
+      animation: {
+        'spin-once': 'spin-once 1s ease-in-out'
+      }
+    },
     colors: {
       primary: '#4F46E5',
       'primary-dark': '#4338CA',

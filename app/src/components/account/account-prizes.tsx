@@ -22,7 +22,7 @@ export function AccountLotteryPrizes() {
   const POLL_INTERVAL = 30000; // 30 seconds
   const transactionToast = useTransactionToast()
 
-  const fetchLotteries = async () => {
+  const fetchLotteries = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -45,9 +45,9 @@ export function AccountLotteryPrizes() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchAllLotteries = async () => {
+  const fetchAllLotteries = useCallback(async () => {
     try {
       setTableLoading(true);
       const response = await fetch('/api/getAllLotteries', {
@@ -67,9 +67,9 @@ export function AccountLotteryPrizes() {
     } finally {
       setTableLoading(false);
     }
-  };
+  }, []);
 
-  const processLottery = async (lotteryId: string) => {
+  const processLottery = useCallback(async (lotteryId: string) => {
     try {
       console.log(`Processing lottery: ${lotteryId}`);
       setProcessingLotteryId(lotteryId);
@@ -99,7 +99,7 @@ export function AccountLotteryPrizes() {
       setProcessingLotteryId(null);
       console.log(`Completed processing for lottery: ${lotteryId}`);
     }
-  };
+  }, [fetchLotteries]);
 
   const claimPrize = async (lotteryId: string, creator: PublicKey) => {
     try {
@@ -166,7 +166,7 @@ export function AccountLotteryPrizes() {
       setAllLotteries(prevLotteries =>
         prevLotteries.map(lottery =>
           lottery.lotteryId === lotteryId
-            ? { ...lottery, status: 3 }
+            ? { ...lottery, status: { statusNumeric: 3, statusDisplay: 'finalized' } }
             : lottery
         )
       );
@@ -202,7 +202,7 @@ export function AccountLotteryPrizes() {
       const data = await response.json();
       console.log('Fetched lotteries:', data.lotteries);
       const pendingLotteries = data.lotteries?.filter(
-        (lottery: Lottery) => lottery.status === 1
+        (lottery: Lottery) => lottery.status.statusNumeric === 1
       );
 
       console.log(`Found ${pendingLotteries?.length || 0} pending lotteries to process`);
@@ -231,7 +231,7 @@ export function AccountLotteryPrizes() {
       setError(null);
       
       const pendingLotteries = allLotteries.filter(
-        lottery => lottery.status === 1
+        lottery => lottery.status.statusNumeric === 1
       );
 
       if (pendingLotteries.length === 0) {
@@ -275,10 +275,10 @@ export function AccountLotteryPrizes() {
   const renderTableRow = (lottery: Lottery) => {
     console.log('Rendering lottery row:', {
       lotteryId: lottery.lotteryId,
-      status: lottery.status,
+      status: lottery.status.statusNumeric,
       winner: lottery.winner,
       currentAddress: wallet.publicKey?.toString(),
-      shouldShowClaim: lottery.status === 2 &&
+      shouldShowClaim: lottery.status.statusNumeric === 2 &&
         lottery.winner?.toString() === wallet.publicKey?.toString(),
       addressMatch: lottery.winner?.toString() === wallet.publicKey?.toString()
     });
@@ -309,7 +309,7 @@ export function AccountLotteryPrizes() {
             : 'Pending'}
         </td>
         <td className="whitespace-nowrap">
-          {lottery.status === 2 &&
+          {lottery.status.statusNumeric === 2 &&
             lottery.winner?.toString() === wallet.publicKey?.toString() ? (
             <div className="tooltip" data-tip={
               !lottery.creator ? "Missing creator address" :
@@ -344,17 +344,17 @@ export function AccountLotteryPrizes() {
               </button>
             </div>
           ) : (
-            <span className={`badge ${lottery.status === 3
+            <span className={`badge ${lottery.status.statusNumeric === 3
                 ? 'badge-neutral'
-                : lottery.status === 2
+                : lottery.status.statusNumeric === 2
                   ? 'badge-success'
-                  : lottery.status === 1
+                  : lottery.status.statusNumeric === 1
                     ? 'badge-warning'
                     : 'badge-info'
               }`}>
-              {lottery.status === 3 ? 'finalized' 
-                : lottery.status === 2 ? 'completed'
-                : lottery.status === 1 ? 'pending'
+              {lottery.status.statusNumeric === 3 ? 'finalized' 
+                : lottery.status.statusNumeric === 2 ? 'completed'
+                : lottery.status.statusNumeric === 1 ? 'pending'
                 : 'unknown'}
             </span>
           )}
@@ -368,7 +368,7 @@ export function AccountLotteryPrizes() {
       fetchLotteries();
       fetchAllLotteries();
     }
-  }, [wallet.publicKey]);
+  }, [wallet.publicKey, fetchLotteries, fetchAllLotteries]);
 
   if (loading) {
     return (
@@ -385,7 +385,7 @@ export function AccountLotteryPrizes() {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold">Lottery Prizes</h2>
-        {allLotteries.some(lottery => lottery.status === 1) && (
+        {allLotteries.some(lottery => lottery.status.statusNumeric === 1) && (
           <button
             className="btn btn-primary btn-sm"
             onClick={processAllPendingLotteries}

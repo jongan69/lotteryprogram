@@ -45,7 +45,7 @@ export default function DashboardFeature() {
     }
 
     fetchProgramId()
-  }, [])
+  }, [cluster.network])
 
   // Update the memoizedGetProgram callback
   const memoizedGetProgram = useCallback(
@@ -325,8 +325,8 @@ export default function DashboardFeature() {
       <AppHero
         title="Solana Lottery"
         subtitle={
-          <div className="space-y-2">
-            <p>Try your LOCK in our decentralized lottery system! Built on Switchboard VRF</p>
+          <div className="space-y-2 p-2">
+            <p>Try your LOCK 🔒 in our decentralized lottery system! Built on Switchboard VRF</p>
             <p className="text-sm text-gray-600">
               85% of the pool goes to the winner • 10% development fee • 5% goes to the creator!
             </p>

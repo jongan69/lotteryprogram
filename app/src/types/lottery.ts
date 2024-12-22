@@ -19,7 +19,10 @@ export interface Lottery {
     winner: PublicKey | null;
     randomnessAccount: PublicKey | null;
     index: number;
-    status: LotteryStatus;
+    status: {
+        statusNumeric: number;
+        statusDisplay: string;
+    };
     totalPrize: anchor.BN;
 }
 
