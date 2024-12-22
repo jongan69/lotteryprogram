@@ -85,7 +85,7 @@ export function ClusterProvider({ children }: { children: ReactNode }) {
     },
     setCluster: (cluster: Cluster) => {
       if (cluster.network === ClusterNetwork.Mainnet) {
-        const confirmed = window.confirm('Warning: Devnet only!')
+        const confirmed = window.confirm('Program deployed to mainnet-beta: LockcW3SZfpT9w7i2xCJM5fG429uvJhdV8Mn8s5oqGq')
         if (!confirmed) return
       }
       setCluster(cluster)
