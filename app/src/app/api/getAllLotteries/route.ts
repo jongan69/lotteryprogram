@@ -3,7 +3,7 @@ import * as anchor from '@coral-xyz/anchor';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import bs58 from 'bs58';
 import { LotteryProgram } from '@/types/lottery';
-import { getNumericStatus, getStatusString } from '@/lib/utils';
+import { getStatus } from '@/lib/getStatus';
 
 const PROGRAM_ID = process.env.NEXT_PUBLIC_PROGRAM_ID
     ? new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID)
@@ -48,7 +48,6 @@ export async function GET() {
         const lotteryAccounts = await program.account.lotteryState.all();
         console.log(`Total lotteries found: ${lotteryAccounts.length} for program ${PROGRAM_ID}`);
 
-        console.log(lotteryAccounts);
         // Filter for processable lotteries
         const processableLotteries = lotteryAccounts.filter(({ account }) => {
             const hasEnded = account.endTime * 1000 < Date.now();
@@ -56,24 +55,22 @@ export async function GET() {
             return hasEnded && hasParticipants;
         });
 
-        // console.log(`All lotteries found: ${lotteryAccounts.length}`);
-        // console.log(processableLotteries);
-        // for (const lottery of processableLotteries) {
-        //     console.log(lottery.account.status);
-        // }
-
-        // Return processable lotteries
-        return NextResponse.json({
-            lotteries: processableLotteries.map(({ account }) => ({
+        // Get status for each lottery
+        const lotteryData = await Promise.all(
+            processableLotteries.map(async ({ account }) => ({
                 lotteryId: account.lotteryId,
-                statusDisplay: getStatusString(account.status),
-                status: getNumericStatus(account.status),
+                status: await getStatus(account.lotteryId, provider),
                 admin: account.admin.toString(),
                 creator: account.creator.toString(),
                 participants: account.participants,
                 prizeAmount: account.prizeAmount,
                 winner: account.winner || null,
-            })),
+            }))
+        );
+
+        // Return all lotteries
+        return NextResponse.json({
+            lotteries: lotteryData,
             total: processableLotteries.length,
         });
     } catch (error: any) {

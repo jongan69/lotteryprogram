@@ -32,7 +32,7 @@ export function getStatusString(status: any): string {
 
 // Add helper function to get numeric status
 export function getNumericStatus(status: any): number {
-  console.log('Status in getNumericStatus:', status);
+  // console.log('Status in getNumericStatus:', status);
   if (typeof status === 'number') {
     console.log('Numeric status:', status);
     return status;
