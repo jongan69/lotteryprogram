@@ -9,6 +9,7 @@ import { Lottery } from '@/types/lottery';
 import { isValidPublicKey } from '@/lib/utils';
 import { useTransactionToast } from '../ui/ui-layout';
 import { truncateAddress } from '@/lib/utils';
+import { selectWinner } from '@/lib/selectWInner';
 
 export function AccountLotteryPrizes() {
   const wallet = useWallet()
@@ -84,22 +85,7 @@ export function AccountLotteryPrizes() {
       console.log(`Processing lottery: ${lotteryId}`);
       setProcessingLotteryId(lotteryId);
       setError(null);
-
-      const response = await fetch('/api/selectWinner', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'selectWinner',
-          params: { lotteryId },
-        }),
-      });
-
-      if (!response.ok) {
-        const errorResponse = await response.json();
-        console.error(`Failed to process lottery: ${lotteryId}`, errorResponse);
-        throw new Error(errorResponse.error || 'Failed to process lottery');
-      }
-
+      await selectWinner(lotteryId);
       console.log(`Successfully processed lottery: ${lotteryId}`);
       await fetchLotteries();
     } catch (err) {
