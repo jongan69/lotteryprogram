@@ -1,13 +1,11 @@
 import { getEndedLotteries } from '@/lib/getEndedLotteries';
 import { selectWinner } from '@/lib/selectWInner';
-import type { NextApiRequest, NextApiResponse } from 'next';
 
 export async function GET(
-    req: NextApiRequest,
-    res: NextApiResponse
+    req: Request
 ) {
     if (req.method !== 'GET') {
-        return res.status(405).json({ error: 'Method not allowed' });
+        return new Response('Method not allowed', { status: 405 });
     }
 
     try {
