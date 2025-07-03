@@ -29,7 +29,7 @@
     "daisyui": "^4.12.10",
     "jotai": "^2.9.1",
     "mongodb": "^6.12.0",
-    "next": "15.3.2",
+    "next": "15.3.4",
     "react": "^18",
     "react-dom": "^18",
     "react-hot-toast": "^2.4.1",
